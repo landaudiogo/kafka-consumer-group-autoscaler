@@ -23,29 +23,16 @@ Conclusões:
 4. Temos atrasos a popular na base de dados, depois de consumir o evento
 5. Possibilidade de rollback
 6. Por projeto tem 1 consumer por determinado topico
-7. 
-
-
 
 
 ### Scalability
-
-1. Adding brokers 
-2. Adding partitions
-3. Adding consumers to consumer groups
-
-The number of partitions is determined by the target throughput. To measure this quantity, there has to be a **target throughput** (Tt) and a producer throughput.
-After determining the target throughput, the **consumer throughput** (Ct) and **producer throughput** (Pt) are used to specify the amount of partitions required. This is done by dividing the (Tt/Ct) and (Tt/Pt). 
 
 For each of these calculations, this indicates the amount of partitions each of these services require, working in parallel to achieve the objective throughput. 
 
 Due to the nature of this architecture, everything being produced has to be consumed by a consumer group. Therefore, the amount of partiitons is strongly defined by the worst case throughput between the producers and the consumers. 
 
 
-Tt - Indicates the target throughput for our application. 
-Ct - is given by the average consumption throughput of a single consumer in a consumer group. 
 
-Pt - 
 
 After setting the amount of partitions, kafka supports adding partitions on runtime, but due to its design, it does not support reducing the number of partitions wihtout any sideeffects. E.g. It cannot remove a partition wihtout losing the data it already contains.
 
