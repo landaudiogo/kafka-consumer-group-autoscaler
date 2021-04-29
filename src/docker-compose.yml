@@ -1,0 +1,12 @@
+version: '3.8'
+
+services: 
+  producer: 
+    container_name: producer_test
+    build: . 
+    networks: 
+      - kafka-startup_kafka-network
+
+networks:
+  kafka-startup_kafka-network: 
+    external: true

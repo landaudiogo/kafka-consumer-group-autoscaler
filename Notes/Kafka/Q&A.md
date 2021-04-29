@@ -5,3 +5,5 @@ After reading the record, it commits the message, and the kafka the offset is st
 
 Q: What happens if the group coordinator crashes?
 A: When a group coordinator crashes (broker crashed) the 
+
+Q: Can we commit the last message and it assumes that all the messages have been committed?

@@ -39,7 +39,7 @@
 
 
 ### Análise Estatistica
-- Através da máxima latência, desenho da estrutura kafka que não exceda este valor no pior cenário.
+- Através da máxima latência, desenho da estrutura kafka que não exceda este valor no pior cenário
 	- Definir métricas para serem captadas; 
 	- Fazer o desenho da arquitetura para ser complient com os objetivos
 
