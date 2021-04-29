@@ -13,6 +13,8 @@
 - Notas sobre a arquitetura global da HUUB 
 - Notas sobre a arquitetura ETL
 
+_**Main goal:**_ State of the art - Huub actual arquitetura 
+
 (1-3 dias)
 
 - Definição dos objetivos: 
