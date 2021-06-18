@@ -30,4 +30,4 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-CMD python3 ./consumer_huub.py
+CMD python3 -u ./test.py

@@ -1,9 +1,9 @@
 version: '3.8'
 
 services: 
-  producer: 
-    container_name: producer_test
-    build: . 
+  test: 
+    container_name: test
+    build: .
     networks: 
       - kafka-startup_kafka-network
 

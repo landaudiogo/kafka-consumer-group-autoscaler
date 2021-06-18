@@ -1,0 +1,17 @@
+version: '3.8'
+
+services: 
+  producer: 
+    container_name: producer_test
+    build: ./HUUB
+    networks: 
+      - kafka-startup_kafka-network
+  consumer: 
+    container_name: consumer_test
+    build: ./local
+    networks: 
+      - kafka-startup_kafka-network
+
+networks:
+  kafka-startup_kafka-network: 
+    external: true

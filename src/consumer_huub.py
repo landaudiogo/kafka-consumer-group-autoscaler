@@ -4,9 +4,11 @@ from confluent_kafka import Consumer, SerializingProducer
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 
+from huub_schemas import DeliveryEventV6AvroSchema
+
 consumer_conf = {
     'bootstrap.servers': '52.213.38.208:9092', 
-    'group.id': 'landau_test_consumer2', 
+    'group.id': 'landau_test_consumer6', 
     'auto.offset.reset': 'earliest'
 }
 sms_fields = [
@@ -24,13 +26,13 @@ sms_fields = [
 ]
 
 schema = {
-    'name': 'SMS3PLAdjustPhysicalStockUpdatedEvent',
+    'name': 'delivery_event',
     'type': 'record',
-    'fields': sms_fields
+    'fields': DeliveryEventV6AvroSchema
 }
 parsed_schema = parse_schema(schema)
 consumer = Consumer(consumer_conf)
-consumer.subscribe(['sms_physical_stock_updated_topic'])
+consumer.subscribe(['delivery_events_v6_topic'])
 
 # producer 
 
@@ -39,13 +41,16 @@ schema_registry_conf = {
 }
 
 schema_registry_client = SchemaRegistryClient(schema_registry_conf)
-sms_latest = schema_registry_client.get_latest_version('sms_physical_stock_updated_topic-value')
-sms_avro_serializer = AvroSerializer(schema_registry_client, sms_latest.schema.schema_str)
+delivery_schema = schema_registry_client.get_schema(52)
+# delivery_schema = schema_registry_client.get_latest_version('delivery_event-value')
+print(delivery_schema.schema_str)
+delivery_serializer = AvroSerializer(schema_registry_client, delivery_schema.schema_str)
 
 producer_conf = {
     'bootstrap.servers': 'broker:29092', 
-    'client.id': 'test_producer', 
-    'value.serializer': sms_avro_serializer
+    'client.id': 'delivery_producer', 
+    'value.serializer': delivery_serializer, 
+    'plugin.library.paths': 'monitoring-interceptor'
 }
 producer = SerializingProducer(producer_conf)
 
@@ -53,6 +58,7 @@ while True:
     msg = consumer.poll()
     with BytesIO(msg.value()) as buff:
         value = schemaless_reader(buff, parsed_schema)
-    producer.produce('sms_physical_stock_updated_topic', value=value)
-    producer.flush()
     print(value)
+    break
+    producer.produce('delivery_events_v6_topic', value=value)
+    producer.flush()

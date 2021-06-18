@@ -1,0 +1,12 @@
+version: '3.8'
+
+services: 
+  schema_reference: 
+    container_name: schema_reference
+    build: .
+    networks: 
+      - kafka-startup_kafka-network
+
+networks:
+  kafka-startup_kafka-network: 
+    external: true

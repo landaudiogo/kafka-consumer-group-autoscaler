@@ -15,7 +15,8 @@ print(test5_latest.schema.schema_str)
 conf = {
     'bootstrap.servers': 'broker:29092', 
     'client.id': 'test_producer', 
-    'value.serializer': test5_avro_serializer
+    'value.serializer': test5_avro_serializer,
+    'plugin.library.paths': 'monitoring-interceptor'
 }
 producer = SerializingProducer(conf)
 producer.produce('test5', value={'name': 'Diogo', 'id': 10})

@@ -16,7 +16,6 @@ RUN ./configure \
 
 WORKDIR ..
 
-
 RUN apt update \
   && apt-get --assume-yes install software-properties-common
 
@@ -28,6 +27,8 @@ COPY ./requirements.txt ./
 
 RUN pip install -r requirements.txt
 
+ENV TOPIC_NAME='delivery_event'
+
 COPY . .
 
-CMD python3 ./consumer_huub.py
+CMD python3 -u ./consumer.py
