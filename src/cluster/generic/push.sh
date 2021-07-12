@@ -11,7 +11,7 @@ read -p "Tag image with $imageName? [Y|n] " opt
   exit 0
 }
 
-docker build "$directory" -t "$imageName" \
+docker build --no-cache "$directory" -t "$imageName" \
   || {
     printf "\n\nFailed to build image\n"
     printf "verify Dockerfile directory or build output\n"
