@@ -7,13 +7,13 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-ENV BQ_TABLE='delivery_events_temp'
-ENV IMPORT_PATH='contracts.delivery.delivery_events_v6'
-ENV IMPORT_OBJECT='DeliveryEventsV6Topic'
-ENV IGNORE_EVENTS='"[\"ShippingPricesEstimatedEvent\"]"'
-ENV CONSUME_ENV='uat'
-ENV WRITE_ENV='uat'
-ENV GROUP_ID='test_generic_delivery5'
+# ENV BQ_TABLE='delivery_events_temp'
+# ENV IMPORT_PATH='contracts.delivery.delivery_events_v6'
+# ENV IMPORT_OBJECT='DeliveryEventsV6Topic'
+# ENV IGNORE_EVENTS='"[\"ShippingPricesEstimatedEvent\"]"'
+# ENV CONSUME_ENV='prod'
+# ENV WRITE_ENV='uat'
+# ENV GROUP_ID='test_generic_delivery8'
 
 
 CMD python3 -u generic_consumer.py

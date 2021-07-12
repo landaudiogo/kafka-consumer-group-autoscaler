@@ -36,7 +36,7 @@ When the consumer start's up, it finds the coordinator for the group, and send a
 
 A consumer group shares the topic load (number of partitions) with all it's consumers. For this reason, there can only be as many consumers as there are partitions to achieve maximum parallelism.
 
-Each member of the group, must send offsets to the coordinator in order to remain a member of the group. If no heartbeat is received before expiration of the configured session timeout, then the coordinator kicks that member and assigns it's partitions to other members (rebalance).
+Each member of the group, must send heartbeats to the coordinator in order to remain a member of the group. If no heartbeat is received before expiration of the configured session timeout, then the coordinator kicks that member and assigns it's partitions to other members (rebalance).
 
 ### Rebalancing
 

@@ -3,6 +3,7 @@ import time
 import json
 from io import BytesIO
 import gc
+import tracemalloc
 
 from fastavro import reader, parse_schema, schemaless_writer, schemaless_reader
 from confluent_kafka import Consumer
@@ -18,17 +19,19 @@ from utils import (
     split_batches, 
     print_result 
 )
-print("STARTING")
+print("STARTING v1.0.4")
 
 with ConfluentKafkaConsumer(CONSUMER_CONFIG, [TOPIC], None) as c:
     consumer = c.consumer
     while True: 
-        msg_list = consumer.consume(num_messages=50, timeout=0)
+        msg_list = consumer.consume(timeout=5, num_messages=50)
         if not msg_list:
             continue
         try:
-            msg_list, times = pre_process(msg_list, c), {'start': time.time()}
-            batch_list, times['proc'] = split_batches(msg_list), time.time()-times['start']
+            times = {'start': time.time()}
+            msg_list = pre_process(msg_list, c) 
+            batch_list = split_batches(msg_list) 
+            times['proc'] = time.time()-times['start']
             with BQClient() as bq_client:
                 bq_client.stream_rows(batch_list) 
             times['end'] = time.time() - times['start']
@@ -37,5 +40,4 @@ with ConfluentKafkaConsumer(CONSUMER_CONFIG, [TOPIC], None) as c:
         except Exception as e:
             raise e 
 
-
-
+print('closing')

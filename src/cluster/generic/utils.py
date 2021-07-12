@@ -60,7 +60,7 @@ def evt_to_row(evt, consumer):
                 time.gmtime()
             ),
         } 
-    except SerializationException as se:
+    except Exception as e:
         # could not deserialize message
         return None
 
@@ -84,6 +84,6 @@ def split_batches(rows: list) -> BatchList:
 
 def print_result(batch_list, times):
     print(f'''\n\nINSERTED {batch_list.num_events} EVENTS({batch_list.total_bytes:,} bytes)''')
-    print(f'''PRE-PROCESSING => {round(times['proc'], 2)}s ({round((times['proc'])/(times['end'])*100, 2)}%)''')
-    print(f'''INSERT => {round(times['end']-times['proc'], 2)}s ({round((times['end']-times['proc'])/(times['end'])*100, 2)}%)''')
-    print(f'''TOTAL => {round(times['end'], 2)}s\n\n''')
+    print(f'''PRE-PROCESSING => {round(times['proc'], 3)}s ({round((times['proc'])/(times['end'])*100, 3)}%)''')
+    print(f'''INSERT => {round(times['end']-times['proc'], 3)}s ({round((times['end']-times['proc'])/(times['end'])*100, 3)}%)''')
+    print(f'''TOTAL => {round(times['end'], 3)}s\n\n''')
