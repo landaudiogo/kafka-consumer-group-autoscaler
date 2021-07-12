@@ -19,7 +19,7 @@ from utils import (
     split_batches, 
     print_result 
 )
-print("STARTING v1.0.4")
+print("STARTING v1.0.5")
 
 with ConfluentKafkaConsumer(CONSUMER_CONFIG, [TOPIC], None) as c:
     consumer = c.consumer

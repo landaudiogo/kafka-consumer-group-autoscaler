@@ -9,7 +9,7 @@ from google.cloud import (
 from google.oauth2 import service_account
 from pandas_gbq import gbq
 
-from config import BQ_CLIENT_CONFIG
+from config import BQ_CLIENT_CONFIG, GCP_BUCKET
 
 import asyncio 
 from functools import wraps, partial
@@ -21,7 +21,7 @@ def use_bucket(client, rows):
         write = csv.writer(f, quoting=csv.QUOTE_ALL)
         write.writerows(rows)
     big_query_insert_result = None
-    bucket_name = "lost_events"
+    bucket_name = GCP_BUCKET
     source_file_name = "GFG.csv"
     destination_blob_name = "{}.csv".format(calendar.timegm(time.gmtime()))
     credentials = service_account.Credentials.from_service_account_file(

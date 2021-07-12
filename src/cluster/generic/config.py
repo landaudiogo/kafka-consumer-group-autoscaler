@@ -21,7 +21,7 @@ BQ_CLIENT = {
 WRITE_ENV = os.getenv('WRITE_ENV')
 BQ_CLIENT_CONFIG = BQ_CLIENT[f'{WRITE_ENV}']
 
-
+GCP_BUCKET = 'lost_events_{}'.format(WRITE_ENV)
 
 # KAFKA
 KAFKA = {
