@@ -13,7 +13,7 @@ COPY . .
 # ENV IGNORE_EVENTS='"[\"ShippingPricesEstimatedEvent\"]"'
 # ENV CONSUME_ENV='prod'
 # ENV WRITE_ENV='uat'
-# ENV GROUP_ID='test_generic_delivery8'
+# ENV GROUP_ID='test_generic_delivery10'
 
 
 CMD python3 -u generic_consumer.py

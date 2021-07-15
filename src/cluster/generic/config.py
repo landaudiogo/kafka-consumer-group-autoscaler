@@ -21,7 +21,7 @@ BQ_CLIENT = {
 WRITE_ENV = os.getenv('WRITE_ENV')
 BQ_CLIENT_CONFIG = BQ_CLIENT[f'{WRITE_ENV}']
 
-GCP_BUCKET = 'lost_events_{}'.format(WRITE_ENV)
+GCP_BUCKET = f'lost_events_{WRITE_ENV}'
 
 # KAFKA
 KAFKA = {
@@ -33,9 +33,13 @@ CONSUMER_CONFIG = {
     'bootstrap.servers': ','.join(BROKERS), 
     'group.id': os.getenv('GROUP_ID'), 
     'auto.offset.reset': 'earliest',
-    'fetch.min.bytes': 1_000_000, 
-    'fetch.max.bytes': 10*1_000_000,
-#    'plugin.library.paths': 'monitoring-interceptor'
+    # 'fetch.min.bytes': 10_000, 
+    'fetch.max.bytes': 10_000_000,
+    'message.max.bytes': 2_000_000,
+    'enable.auto.commit': False,
+    'queued.max.messages.kbytes': 2_000, 
+    'max.partition.fetch.bytes': 2_000_000,
+    # 'plugin.library.paths': 'monitoring-interceptor'
 }
 
 

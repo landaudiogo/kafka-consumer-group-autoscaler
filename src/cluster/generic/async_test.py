@@ -22,9 +22,16 @@ def stream_rows():
 
 start = time.time()
 
+async def arange(*args):
+    for i in range(*args):
+        yield i
+
+async def testing():
+    async for i in arange(4):
+        await stream_rows()
+
 tasks = [
-    asyncio.ensure_future(stream_rows()), 
-    asyncio.ensure_future(stream_rows()), 
+    asyncio.ensure_future(testing()), 
 ]
 loop.run_until_complete(asyncio.wait(tasks))
 loop.close()
