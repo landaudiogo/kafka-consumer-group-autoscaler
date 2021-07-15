@@ -12,10 +12,12 @@ from google.oauth2 import service_account
 from pandas_gbq import gbq
 
 from config import BQ_CLIENT_CONFIG, GCP_BUCKET
+from utils import eprint
 
 import asyncio 
 from functools import wraps, partial
 import time
+
 
 def async_wrap(func):
     @wraps(func)
@@ -44,8 +46,8 @@ async def stream_rows(client, batch, loop=None):
             ]
             await client.use_bucket(rows)
     except Exception as e:
-        print(e)
-        print('=== Failed Batch insert ===')
+        eprint(e)
+        eprint('=== Failed Batch insert ===')
         coros = [
             insert_row(client, row, table, loop=loop)
             for row in batch.rows
@@ -58,8 +60,8 @@ async def insert_row(client, row, table, loop):
         if result:
             await client.use_bucket([row])
     except Exception as e:
-        print(e)
-        print('=== Failed single row insert ===')
+        eprint(e)
+        eprint('=== Failed single row insert ===')
         await client.use_bucket([row])
 
 
@@ -96,7 +98,7 @@ class GCPClient:
             ]
             loop.run_until_complete(asyncio.wait(tasks))
         except Exception as e:
-            print('=== EXCEPTION ===')
+            eprint('=== EXCEPTION ===')
             raise e
 
     async def use_bucket(self, rows): 
@@ -139,8 +141,8 @@ class GCPClient:
             if not res.error_result:
                 blob.delete()
         except Exception as e:
-            print(e)
-            print('=== Failed using bucket ===')
+            eprint(e)
+            eprint('=== Failed using bucket ===')
             raise e
         finally:
             os.remove(source_file_name)
@@ -158,7 +160,7 @@ class GCPClient:
             blob = bucket.blob(destination_blob_name)
             blob.upload_from_filename(source_file_name)
         except Exception as e:
-            print(e) 
-            print("=== Failed to insert malformed evt into bytes bucket ===")
+            eprint(e) 
+            eprint("=== Failed to insert malformed evt into bytes bucket ===")
         finally:
             os.remove(source_file_name)

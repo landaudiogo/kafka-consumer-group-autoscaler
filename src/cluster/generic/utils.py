@@ -1,6 +1,8 @@
+import sys
 import asyncio
 import time
 import json
+
 from config import IGNORE_EVENTS
 from messaging.consumer import ConfluentKafkaConsumer
 from messaging.serializer import SerializationException
@@ -36,7 +38,7 @@ class BatchList:
                 self.batches.append(Batch())
                 self.batches[-1].append(row)
         else:
-            print('=== String too big ===')
+            eprint('=== String too big ===')
             await self.gcp_client.use_bucket([row])
         self.total_bytes += len(row['event_json'])
         self.num_events += 1
@@ -67,10 +69,10 @@ async def evt_to_row(msg, conf_consumer, gcp_client):
                 ),
             } 
         else:
-            print("Message error")
+            eprint("Message error")
     except Exception as e:
-        print(e)
-        print('=== Failed Deserialization, Sending to bytes bucket ===')
+        eprint(e)
+        eprint('=== Failed Deserialization, Sending to bytes bucket ===')
         await gcp_client.bytes_to_bucket(msg.value())
 
 async def pre_process(
@@ -102,3 +104,7 @@ def print_result(batch_list, times):
     print(f'''PRE-PROCESSING => {round(times['proc'], 3)}s ({round((times['proc'])/(times['end'])*100, 3)}%)''')
     print(f'''INSERT => {round(times['end']-times['proc'], 3)}s ({round((times['end']-times['proc'])/(times['end'])*100, 3)}%)''')
     print(f'''TOTAL => {round(times['end'], 3)}s\n\n''')
+
+
+def eprint(*args, **kwargs): 
+    print(*args, file=sys.stderr, **kwargs)
