@@ -1,9 +1,8 @@
 version: '3.8'
 
 services: 
-
-  monitor: 
-    container_name: monitor
+  producer: 
+    container_name: producer
     build: .
     networks: 
       - kafka_kafka-network

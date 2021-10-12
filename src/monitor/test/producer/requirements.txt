@@ -1,0 +1,3 @@
+confluent-kafka
+fastavro==0.21.8
+requests

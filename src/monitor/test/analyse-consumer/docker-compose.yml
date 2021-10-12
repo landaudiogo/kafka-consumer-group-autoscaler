@@ -1,13 +1,16 @@
 version: '3.8'
 
 services: 
-
-  monitor: 
-    container_name: monitor
+  consumer: 
+    container_name: consumer
     build: .
     networks: 
       - kafka_kafka-network
+    volumes:
+      - ../data:/usr/src/data
+      
 
 networks:
   kafka_kafka-network: 
     external: true
+

@@ -4,39 +4,112 @@ import org.apache.kafka.clients.admin.{
     AdminClientConfig, 
     LogDirDescription
 }
+import org.apache.kafka.clients.producer.{
+    KafkaProducer, 
+    Producer,
+    ProducerRecord,
+    RecordMetadata
+}
+
 
 import org.json4s.native.Json
 import org.json4s.DefaultFormats
 import java.time.LocalDateTime
 import java.util.Properties
+import scala.util.control.Breaks._
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{
-    Map => mMap
+    Map => mMap, 
+    Queue
+}
+
+class Measurement(var partitionBytes: mMap[String, mMap[Int, Long]], var timestamp: Long) {
+    def difference(first: Measurement): mMap[String, mMap[Int, Double]] = {
+        val timediff = (this.timestamp - first.timestamp).toDouble/1000.toDouble
+        val partitionBytesDiff = mMap[String, mMap[Int, Double]]()
+        this.partitionBytes.foreach {
+            case(topic, partitions) => {
+                if(partitionBytesDiff.get(topic) == None)
+                    partitionBytesDiff += (topic -> mMap[Int, Double]())
+
+                partitions.foreach{
+                    case(partition, secondPartitionSize) => {
+                        val firstPartitionSize = first.partitionBytes.get(topic).get.get(partition).get
+                        partitionBytesDiff(topic) += (partition -> (secondPartitionSize - firstPartitionSize)/timediff)
+                    }
+                }
+            }
+        }
+        partitionBytesDiff
+    }
 }
 
 object Monitor {
-    def main(args: Array[String]) = {
-        val adminClient = adminClientCreate()
-        val topicsOfInterest = Set("delivery_events_v6_topic", "delivery_events_v7_topic")
-        val partitionLeaders = getPartitionLeaders(adminClient, topicsOfInterest)
-        val partitionBytes = getPartitionSize(adminClient, partitionLeaders)
-        println(partitionBytes)
-        val jsonString = Json(DefaultFormats).write(partitionBytes)
-        println(jsonString)
-        val epoch = System.currentTimeMillis
-        println(LocalDateTime.now())
 
+    def main(args: Array[String]) = {
+        val adminClient = adminClientCreate("broker:29092") //prod:18.202.250.11 uat:52.213.38.208
+        val producerClient = producerClientCreate("broker:29092")
+        val topicsOfInterest = Set("monitor-speed")
+        val tseries = Queue[Measurement]()
+
+        while(true) {
+            val currentTime = System.currentTimeMillis
+            val partitionLeaders = getPartitionLeaders(adminClient, topicsOfInterest)
+            val partitionBytes = getPartitionSize(adminClient, partitionLeaders)
+            tseries += new Measurement(partitionBytes, currentTime)
+
+            while( (currentTime-tseries.front.timestamp) > 30000) 
+                tseries.dequeue
+
+            if(tseries.size > 1) {
+                val earliest = tseries.front
+                val latest = tseries.last 
+                if(latest.timestamp - earliest.timestamp > 1000) { 
+                    println(latest.partitionBytes)
+                    val writeSpeeds = latest.difference(earliest)
+                    val jsonString = Json(DefaultFormats).write(writeSpeeds)
+                    println(jsonString)
+
+                    //val record = new ProducerRecord[String, String]("data-engineering-monitor", jsonString)
+                    //producerClient.send(record).get()
+
+                    producerClient.send(new ProducerRecord[String, String](
+                        "monitor-speed", 
+                        writeSpeeds.get("monitor_speed_test").get(0).toString
+                    ))
+                }
+            }
+
+            //val jsonString = Json(DefaultFormats).write(partitionBytes)
+            //println(jsonString)
+
+            Thread.sleep(1000)
+        }
     }
 
-    def adminClientCreate(): Admin = {
+    def adminClientCreate(brokers: String): Admin = {
         val props = new Properties()
         props.putAll(
             Map(
-                "bootstrap.servers" -> "18.202.250.11:9092" //prod:18.202.250.11 uat:52.213.38.208
+                "bootstrap.servers" -> brokers 
             ).asJava
         )
         Admin.create(props)
+    }
+    
+    def producerClientCreate(brokers: String): KafkaProducer[String, String] = {
+        val props = new Properties()
+        props.putAll(
+            Map(
+                "bootstrap.servers" -> brokers,
+                "client.id" -> "data-engineering-monitor-producer",
+                "key.serializer" -> "org.apache.kafka.common.serialization.StringSerializer",
+                "value.serializer" -> "org.apache.kafka.common.serialization.StringSerializer"
+            ).asJava
+        )
+        val producer = new KafkaProducer[String, String](props)
+        producer
     }
 
     def getPartitionLeaders(
