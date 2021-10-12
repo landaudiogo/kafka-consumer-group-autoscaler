@@ -33,12 +33,15 @@ CONSUMER_CONFIG = {
     'bootstrap.servers': ','.join(BROKERS), 
     'group.id': os.getenv('GROUP_ID'), 
     'auto.offset.reset': 'earliest',
-    # 'fetch.min.bytes': 10_000, 
-    'fetch.max.bytes': 10_000_000,
-    'message.max.bytes': 2_000_000,
+
+    'fetch.min.bytes': 1, 
+    'fetch.wait.max.ms': 500,
+    'max.in.flight': 10,
+    'fetch.max.bytes': 900_000,
+    'message.max.bytes': 900_000,
     'enable.auto.commit': False,
-    'queued.max.messages.kbytes': 2_000, 
-    'max.partition.fetch.bytes': 2_000_000,
+    'queued.max.messages.kbytes': 10_000, 
+    'max.partition.fetch.bytes': 900_000,
     # 'plugin.library.paths': 'monitoring-interceptor'
 }
 

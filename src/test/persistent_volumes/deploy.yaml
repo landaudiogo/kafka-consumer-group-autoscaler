@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox
+  labels: {app: busybox}
+spec:
+  selector: {matchLabels: {app: busybox}}
+  template:
+    metadata: {labels: {app: busybox}}
+    spec:
+      containers:
+      - name: busybox
+        image: busybox
+        volumeMounts:
+        - mountPath: /usr/src/data
+          name: podpvc
+        command:
+        - "sh"
+        - "-c"
+        - |
+          echo "hello this is my first busybox test" >> /usr/src/data/hello
+          cat < /usr/src/data/hello
+          sleep 120
+      volumes: 
+      - name: podpvc
+        persistentVolumeClaim:
+          claimName: pod-pvc
+
