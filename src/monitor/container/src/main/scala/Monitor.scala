@@ -50,7 +50,7 @@ object Monitor {
     def main(args: Array[String]) = {
         val adminClient = adminClientCreate("broker:29092") //prod:18.202.250.11 uat:52.213.38.208
         val producerClient = producerClientCreate("broker:29092")
-        val topicsOfInterest = Set("monitor-speed")
+        val topicsOfInterest = Set("monitor_speed_test")
         val tseries = Queue[Measurement]()
 
         while(true) {
@@ -65,7 +65,7 @@ object Monitor {
             if(tseries.size > 1) {
                 val earliest = tseries.front
                 val latest = tseries.last 
-                if(latest.timestamp - earliest.timestamp > 1000) { 
+                if(latest.timestamp - earliest.timestamp > 25000) { 
                     println(latest.partitionBytes)
                     val writeSpeeds = latest.difference(earliest)
                     val jsonString = Json(DefaultFormats).write(writeSpeeds)
@@ -84,7 +84,7 @@ object Monitor {
             //val jsonString = Json(DefaultFormats).write(partitionBytes)
             //println(jsonString)
 
-            Thread.sleep(1000)
+            Thread.sleep(50)
         }
     }
 

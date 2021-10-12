@@ -3,9 +3,9 @@ import numpy as np
 import json
 
 
-with open('monitor_t2.log', 'r') as f:
+with open('monitor.log', 'r') as f:
     monitor_logs = json.load(f)
-with open('producer_t2.log', 'r') as f:
+with open('producer.log', 'r') as f:
     producer_logs = json.load(f)
 
 

@@ -1,7 +1,6 @@
 from confluent_kafka import Producer
 import time
 import sys
-import random
 
 
 class Timeline:
@@ -45,11 +44,10 @@ timeline = Timeline()
 
 test_str = 'Test message with as many bytes as this message is long'
 
-delta_times = [
-    random.uniform(0.01, 2.00)
-    for i in range(200)
-]
-print(delta_times)
+delta_times = [1] * 35
+delta_times.extend([0.75]*47)
+delta_times.extend([0.5]*70)
+
 timeline.add(f'New Iteration', code=0)
 
 while len(delta_times):
@@ -59,12 +57,13 @@ while len(delta_times):
         delta_times.pop(0)
         producer.produce('monitor_speed_test', test_str.encode())
         producer.flush()
-        timeline.add(f'New Iteration', code=0)
 
+        time_diff = timeline.current_tstamp() - timeline.last_tstamp(0)
         speed = 123/time_diff
         producer.produce('producer-speed', str(speed).encode())
         producer.flush()
         print(speed)
+        timeline.add(f'New Iteration', code=0)
     else: 
         time.sleep(0.01)
 
