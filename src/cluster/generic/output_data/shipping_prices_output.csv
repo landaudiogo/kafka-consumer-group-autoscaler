@@ -1,0 +1,8 @@
+0.0,0
+Partitions assigned: [TopicPartition{topic=shipping_prices_events_topic,partition=0,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=1,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=2,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=3,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=4,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=5,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=6,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=7,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=8,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=9,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=10,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=11,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=12,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=13,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=14,offset=-1001,error=None}, TopicPartition{topic=shipping_prices_events_topic,partition=15,offset=-1001,error=None}]
+181,11.147613525390625,247680
+683,12.823071241378784,736945
+758,14.977767705917358,1466535
+553,17.122942447662354,2192728
+565,19.838770389556885,2972278
+417,21.615325450897217,3472392

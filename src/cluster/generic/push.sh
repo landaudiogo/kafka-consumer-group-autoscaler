@@ -1,9 +1,10 @@
 #!/bin/bash
-remoteVersions=($(wget -q https://registry.hub.docker.com/v1/repositories/thehuub/generic-consumer/tags -O -  | sed -e 's/[][]//g' -e 's/"//g' -e 's/ //g' | tr '}' '\n'  | awk -F: '{print $3}'))
+repository="consumer-capacity"
+remoteVersions=($(wget -q https://registry.hub.docker.com/v1/repositories/thehuub/$repository/tags -O -  | sed -e 's/[][]//g' -e 's/"//g' -e 's/ //g' | tr '}' '\n'  | awk -F: '{print $3}'))
 
 read -p "Dockerfile directory: " directory
 read -p "Choose version (latest is ${remoteVersions[-1]}): " version
-imageName="thehuub/generic-consumer:${version}"
+imageName="thehuub/$repository:${version}"
 
 read -p "Tag image with $imageName? [Y|n] " opt
 [ "$opt" = "n" ] && {
