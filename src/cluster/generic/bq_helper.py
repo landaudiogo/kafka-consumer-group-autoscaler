@@ -47,7 +47,7 @@ async def stream_rows(client, batch, loop=None):
             await client.use_bucket(rows)
     except Exception as e:
         eprint(e)
-        eprint(f'=== Failed Batch insert with size {batch.size} and {len(batch.rows)} rows ===')
+        eprint('=== Failed Batch insert ===')
         coros = [
             insert_row(client, row, table, loop=loop)
             for row in batch.rows
