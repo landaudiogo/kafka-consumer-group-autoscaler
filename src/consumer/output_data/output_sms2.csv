@@ -1,0 +1,8 @@
+0.0,0
+Partitions assigned: [TopicPartition{topic=sms_physical_stock_updated_topic,partition=0,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=1,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=2,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=3,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=4,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=5,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=6,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=7,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=8,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=9,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=10,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=11,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=12,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=13,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=14,offset=-1001,error=None}, TopicPartition{topic=sms_physical_stock_updated_topic,partition=15,offset=-1001,error=None}]
+52,10.953145980834961,15596
+965,12.484668254852295,304035
+606,14.33021330833435,485454
+497,16.63915777206421,635025
+579,18.261300802230835,809217
+385,19.410745859146118,925509
