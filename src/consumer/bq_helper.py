@@ -30,48 +30,14 @@ def async_wrap(func):
     return run
 
 
-async def stream_rows(client, batch, loop=None):
-    try: 
-        table_ref = (client.bq_session
-            .dataset(BQ_CLIENT_CONFIG['dataset'])
-            .table(BQ_CLIENT_CONFIG['table'])
-        )
-        table = client.bq_session.get_table(table_ref)
-        result = await client.bq_session.insert_rows(
-            table, batch.rows, loop=loop
-        )
-        if result:
-            rows = [
-                batch.rows[error['index']]
-                for error in result
-            ]
-            await client.use_bucket(rows)
-    except Exception as e:
-        eprint(e)
-        eprint(f'=== Failed Batch insert with size {batch.size} and {len(batch.rows)} rows ===')
-        coros = [
-            insert_row(client, row, table, loop=loop)
-            for row in batch.rows
-        ]
-        await asyncio.gather(*coros)
-        
-async def insert_row(client, row, table, loop):
-    try: 
-        result = await client.bq_session.insert_rows(table, [row], loop=loop)
-        if result:
-            await client.use_bucket([row])
-    except Exception as e:
-        eprint(e)
-        eprint('=== Failed single row insert ===')
-        await client.use_bucket([row])
-
-
 class GCPClient: 
 
     def __init__(self): 
         self.credentials = service_account.Credentials.from_service_account_file(
             BQ_CLIENT_CONFIG['credentials_path'], scopes=['https://www.googleapis.com/auth/cloud-platform']
         )
+        self.bq_session = None
+        self.storage_session = None
 
     def __enter__(self):
         self.bq_session = bq.Client(
@@ -96,12 +62,14 @@ class GCPClient:
 
     async def send_table(self, batchlist: BatchList):
         table = self.bq_session.get_table(
-            self.bq_session.dataset(BQ_CLIENT_CONFIG['dataset']).table(BQ_CLIENT_CONFIG['table']) 
+            self.bq_session.dataset(BQ_CLIENT_CONFIG['dataset']).table(batchlist.table) 
         )
         tasks = [
             asyncio.ensure_future(self.stream_batch(batch, table)) for batch in batchlist
         ]
-        # tasks.append(asyncio.ensure_future(use_bucket(batchlist.to_bucket)))
+        tasks.append(
+            asyncio.ensure_future(self.use_bucket(batchlist.to_bucket.rows_payload(), batchlist.table))
+        )
         await asyncio.gather(*tasks)
 
     async def stream_batch(self, batch, table):
@@ -110,30 +78,18 @@ class GCPClient:
             result = await self.bq_session.insert_rows(table, rows)
             if result:
                 rows = [batch.rows[error['index']] for error in result]
-                await self.use_bucket(rows)
+                # await self.use_bucket(rows)
         except Exception as e: 
             eprint(e)
             tasks = [
-                asyncio.ensure_future(self.bq_session.insert_rows(table, [row]))
+                self.bq_session.insert_rows(table, [row])
                 for row in rows
             ]
             await asyncio.gather(*tasks)
 
-    async def stream_rows(self,  batch_list, loop=None):
-        try:
-            if not loop:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            tasks = [
-                asyncio.ensure_future(stream_rows(self, batch, loop=loop)) for batch in batch_list.batches
-            ]
-            loop.run_until_complete(asyncio.wait(tasks))
-        except Exception as e:
-            eprint('=== EXCEPTION ===')
-            raise e
 
 
-    async def use_bucket(self, rows): 
+    async def use_bucket(self, batch, bq_table_string): 
         """Used to send rows to a Bucket in case it cannot be inserted into the
         table using the API.
         
@@ -142,8 +98,11 @@ class GCPClient:
         
         """
 
-        rows = [row.values() for row in rows]
-        source_file_name = destination_blob_name = f'{uuid.uuid4().hex}.csv'
+        if batch == []: 
+            return 
+
+        rows = [row.payload.values() for row in batch]
+        source_file_name = destination_blob_name = f'{time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}-{uuid.uuid4().hex}.csv'
         with open(source_file_name, 'w', newline='') as f:
             write = csv.writer(f)
             write.writerows(rows)
@@ -153,7 +112,7 @@ class GCPClient:
             blob.upload_from_filename = async_wrap(blob.upload_from_filename)
             await blob.upload_from_filename(source_file_name)
 
-            table_id = f"{BQ_CLIENT_CONFIG['project']}.{BQ_CLIENT_CONFIG['dataset']}.{BQ_CLIENT_CONFIG['table']}"
+            table_id = f"{BQ_CLIENT_CONFIG['project']}.{BQ_CLIENT_CONFIG['dataset']}.{bq_table_string}"
             job_config = bq.LoadJobConfig(
                 schema=[
                     bq.SchemaField("event_type", "STRING"),
@@ -176,23 +135,5 @@ class GCPClient:
             eprint(e)
             eprint('=== Failed using bucket ===')
             raise e
-        finally:
-            os.remove(source_file_name)
-
-    async def bytes_to_bucket(self, failed_msg_bytes):
-        """Inserts bytes into a bucket in google cloud platform
-
-        """
-
-        source_file_name = destination_blob_name = f'{uuid.uuid4().hex}.bytes'
-        with open(source_file_name, 'wb') as f:
-            f.write(failed_msg_bytes)
-        try: 
-            bucket = self.storage_session.bucket(GCP_BUCKET)
-            blob = bucket.blob(destination_blob_name)
-            blob.upload_from_filename(source_file_name)
-        except Exception as e:
-            eprint(e) 
-            eprint("=== Failed to insert malformed evt into bytes bucket ===")
         finally:
             os.remove(source_file_name)

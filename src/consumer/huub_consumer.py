@@ -7,7 +7,7 @@ from io import BytesIO
 from queue import Queue
 from typing import List, Dict
 
-from config import IGNORE_EVENTS, BATCH_BYTES, METADATA_CONF
+from config import BATCH_BYTES, METADATA_CONF
 from confluent_kafka import Consumer, TopicPartition, KafkaError, OFFSET_BEGINNING, OFFSET_END, OFFSET_INVALID, OFFSET_STORED
 from utils import (
     eprint, Row, RowList, BatchList, Batch
@@ -56,12 +56,9 @@ class DEConsumer(Consumer):
         records = super().consume(**kwargs)
         rows = RowList()
         for msg in records:
-            if msg.topic() == "data-engineering-controller":
-                pass
-            else:
-                row = self.current_assignment[msg.topic()].deserialize(msg)
-                if row != None:
-                    rows.append(row)
+            row = self.current_assignment[msg.topic()].deserialize(msg)
+            if row != None:
+                rows.append(row)
         if rows: 
             self.row_list.extend(rows)
             return

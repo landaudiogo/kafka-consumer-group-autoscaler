@@ -49,28 +49,28 @@ DEControllerSchema = {
     "items": TopicPartitionsSchema
 }
 
-# ControllerSchemaExample = [
-    # {
-        # "topic_name": "delivery_events_v6_topic",
-        # "topic_class": {
-            # "module_path": "contracts.delivery.delivery_events_v6",
-            # "class_name": "DeliveryEventsV6Topic"
-        # },
-        # "partitions": [0, 1,2],
-        # "bq_table": "delivery_events_temp",
-        # "ignore_events": []
-    # }, 
-    # {
-        # "topic_name": "delivery_events_v7_topic",
-        # "topic_class": {
-            # "module_path": "contracts.delivery.delivery_events_v7",
-            # "class_name": "DeliveryEventsV7Topic"
-        # },
-        # "partitions": [3, 4, 5],
-        # "bq_table": "delivery_events_temp",
-        # "ignore_events": []
-    # }
-# ]
+ControllerSchemaExample1 = [
+    {
+        "topic_name": "delivery_events_v6_topic",
+        "topic_class": {
+            "module_path": "contracts.delivery.delivery_events_v6",
+            "class_name": "DeliveryEventsV6Topic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "delivery_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "delivery_events_v7_topic",
+        "topic_class": {
+            "module_path": "contracts.delivery.delivery_events_v7",
+            "class_name": "DeliveryEventsV7Topic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "delivery_events_temp",
+        "ignore_events": []
+    }
+]
 
 # [SMSPhysicalStockUpdatedTopic(), ShippingPricesEventsTopic(),
 # CarrierAccountServiceEventsTopic(), ExtEventsTopic(), Ext3plEventsTopic(),
@@ -152,12 +152,108 @@ ControllerSchemaExample2 = [
             "module_path": "contracts.delivery.delivery_events_v7",
             "class_name": "DeliveryEventsV7Topic"
         },
-        "partitions": [3, 4],
+        "partitions": [0, 1, 2, 3],
         "bq_table": "delivery_events_temp",
         "ignore_events": []
     }
 ]
 
+# [SMSPhysicalStockUpdatedTopic(), ShippingPricesEventsTopic(),
+# CarrierAccountServiceEventsTopic(), ExtEventsTopic(), Ext3plEventsTopic(),
+# Ext3plCommandsTopic(), Ext3plEventsV2Topic(), DeliveryEventsV8Topic(),
+# DeliveryEventsV7Topic()]
+ControllerSchemaExample3 = [
+    {
+        "topic_name": "sms_physical_stock_updated_topic",
+        "topic_class": {
+            "module_path": "contracts.sms.sms_physical_stock_updated_events",
+            "class_name": "SMSPhysicalStockUpdatedTopic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "sms_physical_stock_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "shipping_prices_events_topic",
+        "topic_class": {
+            "module_path": "contracts.shipping_prices_and_cost.shipping_prices",
+            "class_name": "ShippingPricesEventsTopic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "brand_shipping_prices_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "carrier_account_service_events_topic",
+        "topic_class": {
+            "module_path": "contracts.shipping_prices_and_cost.carrier_account_service_events",
+            "class_name": "CarrierAccountServiceEventsTopic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "carrier_account_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "3pl_external_events",
+        "topic_class": {
+            "module_path": "contracts.ext.topic",
+            "class_name": "ExtEventsTopic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "ext_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "ext_3pl_events_topic",
+        "topic_class": {
+            "module_path": "contracts.ext_3pl.ext_3pl_events",
+            "class_name": "Ext3plEventsTopic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "ext_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "ext_3pl_commands_topic",
+        "topic_class": {
+            "module_path": "contracts.ext_3pl.ext_3pl_commands",
+            "class_name": "Ext3plCommandsTopic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "ext_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "ext_3pl_events_v2_topic",
+        "topic_class": {
+            "module_path": "contracts.ext_3pl.ext_3pl_v2_events",
+            "class_name": "Ext3plEventsV2Topic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "ext_events_temp",
+        "ignore_events": []
+    }, 
+    {
+        "topic_name": "delivery_events_v7_topic",
+        "topic_class": {
+            "module_path": "contracts.delivery.delivery_events_v7",
+            "class_name": "DeliveryEventsV7Topic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "delivery_events_temp",
+        "ignore_events": []
+    },
+    {
+        "topic_name": "delivery_events_v8_topic",
+        "topic_class": {
+            "module_path": "contracts.delivery.delivery_events_v8",
+            "class_name": "DeliveryEventsV8Topic"
+        },
+        "partitions": [i for i in range(16)],
+        "bq_table": "delivery_events_temp",
+        "ignore_events": []
+    }
+]
 
 parsed_schema = fastavro.parse_schema(DEControllerSchema)
 
@@ -174,7 +270,7 @@ with BytesIO() as stream:
         "data-engineering-controller", stream.getvalue(),
         partition=1, 
         headers={
-            "serializer": "generic_consumer.DEControllerSchema",
+            "serializer": "de_avro.DEControllerSchema",
             "event_type": "StartConsumingCommand"
         }
     )

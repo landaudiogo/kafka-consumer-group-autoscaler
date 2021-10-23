@@ -13,11 +13,10 @@ from huub_consumer import (
     DEConsumer, DETopic, DETopicPartition, DETopicDict, ChangeStateEvent
 )
 from config import (
-    CONSUMER_CONFIG, TOPIC, IGNORE_EVENTS,
-    BATCH_BYTES, WAIT_TIME_SECS
+    CONSUMER_CONFIG, BATCH_BYTES, WAIT_TIME_SECS
 )
 from utils import (
-    print_result, Timeline, RowList, process
+    Timeline, RowList, process
 )
 
 
@@ -26,85 +25,6 @@ timeline = Timeline()   # CODES
                         # 1: finished streaming rows 
                         # 2: bytes inserted per topic
 
-TopicPartitionsSchema = {
-    "name": "TopicPartition",
-    "type": "record",
-    "fields": [
-        {"name": "topic_name", "type": "string"},
-        {"name": "bq_table", "type": "string"},
-        {
-            "name": "topic_class", 
-            "type": {
-                "name": "topic_class",
-                "type": "record",
-                "fields": [
-                    {"name": "module_path", "type": "string"},
-                    {"name": "class_name", "type": "string"},
-                ]
-            }
-        },
-        {
-            "name": "partitions", 
-            "type": {
-                "type": "array", 
-                "items": {
-                    "name": "partition",
-                    "type": "int"
-                }
-            }
-        },
-        {
-            "name": "ignore_events", 
-            "type": {
-                "type": "array", 
-                "items": {
-                    "name": "event_type",
-                    "type": "string"
-                }
-            }
-        },
-    ]
-}
-
-test = {
-    "name": "topic_partition", 
-    "type": "record", 
-    "fields": [
-        {"name": "topic", "type": "string"},
-        {"name": "partition", "type": "int"},
-    ]
-}
-
-
-DEControllerSchema = {
-    "name": "DEControllerSchema",
-    "type": "array",
-    "items": TopicPartitionsSchema
-}
-
-ControllerSchemaExample = [
-    {
-        "topic_name": "delivery_events_v6_topic",
-        "topic_class": {
-            "module_path": "contracts.delivery.delivery_events_v6",
-            "class_name": "DeliveryEventsV6Topic"
-        },
-        "partitions": [0, 1,2],
-        "bq_table": "delivery_events_temp",
-        "ignore_events": []
-    }, {
-        "topic_name": "delivery_events_v7_topic",
-        "topic_class": {
-            "module_path": "contracts.delivery.delivery_events_v7",
-            "class_name": "DeliveryEventsV7Topic"
-        },
-        "partitions": [3, 4, 5],
-        "bq_table": "delivery_events_temp",
-        "ignore_events": []
-    }
-]
-
-timeline = Timeline()
 with DEConsumer(CONSUMER_CONFIG) as consumer:
     consumer.consume_metadata()
 
@@ -116,18 +36,22 @@ with DEConsumer(CONSUMER_CONFIG) as consumer:
             or (timeline.current_timediff(code=0) > WAIT_TIME_SECS)
         ):
             if consumer.row_list:
+                consume_time = timeline.current_timediff(code=0)
                 list_batchlist = process(consumer.row_list)
+                process_time = timeline.current_timediff(code=0) - consume_time
                 with GCPClient() as gc: 
                     result = asyncio.run(gc.send_bq(list_batchlist))
+                insert_time = timeline.current_timediff(code=0) - (process_time + consume_time)
                 # consumer.commit(offsets=[
                     # nxt_offset
                     # for bl in list_batchlist 
                         # for nxt_offset in bl.tp_list_commit()
                 # ])
 
-                total_bytes = 0
+                total_bytes = total_rows = 0
                 for batchlist in list_batchlist:
                     total_bytes += batchlist.total_bytes
+                    total_rows += batchlist.total_rows
                     items = list(batchlist.tp_offsets.items())
                     # items.sort()
                     # for k, ve in items:
@@ -135,9 +59,20 @@ with DEConsumer(CONSUMER_CONFIG) as consumer:
                         # print(k[0], k[1], vs, ve)
                     # print(total_bytes)
                 # print()
-                print(f"{total_bytes},{timeline.current_timediff(code=0)},{len(list_batchlist)}")
+                speed = total_bytes/timeline.current_timediff(code=0)
+                print(
+                    f"{total_bytes:,}\t"
+                    f"{round(timeline.current_timediff(code=0),2)}\t"
+                    f"{round(consume_time, 2)}\t"
+                    f"{round(process_time, 2)}\t"
+                    f"{round(insert_time, 2)}\t"
+                    f"{int(speed):,}\t"
+                    f"{total_rows}\t"
+                    f"{len(list_batchlist)}"
+                )
 
             consumer.consume_metadata()
             timeline.add('', code=0)
         else:
-            consumer.consume(num_messages=100_000, timeout=0)
+            consumer.consume(num_messages=1, timeout=0)
+

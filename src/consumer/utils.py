@@ -6,7 +6,7 @@ import functools
 
 from typing import List, Dict
 
-from config import IGNORE_EVENTS, BATCH_BYTES
+from config import BATCH_BYTES
 from messaging.consumer import ConfluentKafkaConsumer
 from messaging.serializer import SerializationException
 from confluent_kafka import TopicPartition
@@ -111,9 +111,12 @@ class Timeline:
 class Batch(list):
 
 
-    def __init__(self): 
-        super().__init__()
-        self.size = 0
+    def __init__(self, rows=[]): 
+        super().__init__(rows)
+        self.size = functools.reduce(
+            lambda row, accum: accum+row.payload_size, 
+            rows, 0
+        )
 
     def append(self, row: Row): 
         super().append(row)
@@ -132,7 +135,7 @@ class BatchList(list):
         self.total_bytes = 0
         self.total_rows = 0
         self.weak_max_batch_size = weak_max_batch_size
-        self.to_bucket = []
+        self.to_bucket = Batch()
         self.table = table
         self.tp_offsets = {}
         self.tp_start_offsets = {}
@@ -163,19 +166,15 @@ class BatchList(list):
             for k, v in self.tp_offsets.items()
         ]
 
-def print_result(batch_list, times):
-    print(f'''\n\nINSERTED {batch_list.num_events} EVENTS({batch_list.total_bytes:,} bytes)''')
-    print(f'''PRE-PROCESSING => {round(times['proc'], 3)}s ({round((times['proc'])/(times['end'])*100, 3)}%)''')
-    print(f'''INSERT => {round(times['end']-times['proc'], 3)}s ({round((times['end']-times['proc'])/(times['end'])*100, 3)}%)''')
-    print(f'''TOTAL => {round(times['end'], 3)}s\n\n''')
 
 def process(row_list: RowList) -> None:
     table_batchlist, bytes_batched = {}, 0
-    while len(row_list) and bytes_batched < BATCH_BYTES: 
+    while len(row_list) and (bytes_batched < BATCH_BYTES): 
         row = row_list.pop(0)
-        if table_batchlist.get(row.table) == None:
-            table_batchlist[row.table] = BatchList(row.table)
-        table_batchlist[row.table].add_row(row)
+        batchlist = table_batchlist.get(row.table)
+        if batchlist == None:
+            table_batchlist[row.table] = batchlist = BatchList(row.table)
+        batchlist.add_row(row)
         bytes_batched += row.payload_size
     return list(table_batchlist.values())
 
