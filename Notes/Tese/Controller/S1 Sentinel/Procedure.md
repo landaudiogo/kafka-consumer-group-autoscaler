@@ -5,6 +5,10 @@
 
 # Reading last message
 
+When reading a message from the monitor topic, the controller only cares about the most recent message that has been posted to the partition. For this reason, the consumer is always fetching the last committed message.
+
+Since the monitor topic is always the same, on initialization, the assign method indicates the offset on which to start. After assigning and consuming the last message, the consumer then uses the seek method to define the offset from which the consumer starts consuming.
+
 The Kafka Consumer client provides with the seek method which allows the consumer to seek a message with a provided offset. 
 
 1. get the latest offset.
@@ -24,3 +28,11 @@ Having updated all the partitions, if one of the transitions is set:
 - Unassigned partitons is not empty
 
 The execution of the algorithm is triggered.
+
+# Process steps
+
+## Initialization
+
+The controller has to know which message queue it has to subscribe to to get the data on the speed of the partitions.
+
+When subscribing to the monitor topic, we can define the poll method which 
