@@ -2,6 +2,8 @@ import functools
 import bisect
 
 from typing import List
+from config import CONSUMER_CAPACITY, ALGO_CAPACITY
+
 
 
 class TopicPartitionConsumer:
@@ -21,7 +23,7 @@ class TopicPartitionConsumer:
         return False
 
     def __repr__(self): 
-        return f'<< {self.topic}, {self.partition} >> -> {self.speed}'
+        return f'<{self.partition} -> {self.speed}>'
 
     def copy(self):
         return TopicPartitionConsumer(self.topic, self.partition)
@@ -142,11 +144,19 @@ class DataConsumer:
     def add_partition(self, partition: TopicPartitionConsumer): 
         topic = self.assignment.get(partition.topic)
         if topic == None: 
-            topic = TopicConsumer(partition.topic)
+            topic = TopicConsumer({}, partition.topic)
             self.assignment[partition.topic] = topic
         self.combined_speed -= topic.combined_speed
         topic.add_partition(partition)
         self.combined_speed += topic.combined_speed
+
+    def fits(self, tp: TopicPartitionConsumer): 
+        return (
+            True if (self.combined_speed + tp.speed < ALGO_CAPACITY) 
+            else False
+        )
+    def __repr__(self): 
+        return f'{self.assignment}'
 
 
 class ConsumerList(list):
@@ -217,4 +227,8 @@ class ConsumerList(list):
 
     def __sub__(self, other): 
         pass
+
+    def __repr__(self): 
+        consumers = [c for c in self]
+        return f'{consumers}'
 

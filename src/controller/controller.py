@@ -72,6 +72,7 @@ class Controller:
     def execute_s1(self): 
         msg_string = self.get_monitor_last()
         partition_speeds = json.loads(msg_string)
+        print(partition_speeds)
         for topic_name, p_speeds in partition_speeds.items(): 
             for p_str, speed  in p_speeds.items():
                 speed = min(CONSUMER_CAPACITY, speed)
@@ -87,7 +88,29 @@ class Controller:
 
 
     def execute_s2(self): 
-        pass
+        next_assignment = ConsumerList()
+        next_map = {}
+        next_assignment.create_bin()
+        for tp in self.map_partition_consumer:
+            if next_assignment[-1].fits(tp): 
+                next_assignment[-1].add_partition(tp)
+            else: 
+                next_assignment.create_bin()
+                next_assignment[-1].add_partition(tp)
+            next_map[tp] = next_assignment[-1]
+        for tp in self.unassigned_partitions:
+            if next_assignment[-1].fits(tp): 
+                next_assignment[-1].add_partition(tp)
+            else: 
+                next_assignment.create_bin()
+                next_assignment[-1].add_partition(tp)
+            next_map[tp] = next_assignment[-1]
+        self.unassigned_partitions = []
+        self.consumer_list = next_assignment
+        self.map_partition_consumer = next_map
+        print(next_assignment)
+
+
 
     def execute_s3(self):
         pass

@@ -35,8 +35,10 @@ def main():
             ):
                 controller.change_state(2)
 
+
         elif controller.state == 2:
-            pass
+            controller.execute_s2()
+            controller.change_state(1)
 
         elif controller.state == 3:
             pass
