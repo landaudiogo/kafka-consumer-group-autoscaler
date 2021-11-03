@@ -1,6 +1,7 @@
 import time
 import json
 
+from typing import Tuple
 from confluent_kafka import Consumer, TopicPartition
 from config import (
     MONITOR_CONSUMER_CONFIG, CONTROLLER_CONSUMER_CONFIG, 
@@ -8,7 +9,9 @@ from config import (
 )
 from utilities import Timeline
 from dstructures import TopicPartitionConsumer, ConsumerList
-from typing import Tuple
+from state_machine import (
+    StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement
+)
 
 
 
@@ -35,15 +38,30 @@ class Controller:
             topic="data-engineering-monitor", partition=0
         )])
 
-        self.timeline = Timeline()
-        self.state = None
-        self.change_state(1)
+
+        s1 = StateSentinel(self)
+        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
+        s3 = StateGroupManagement(self)
+        states = [
+            ("s1", s1), 
+            ("s2", s2), 
+            ("s3", s3),
+        ]
+        transitions = [
+            ("s1", "s2", s1.time_up),
+            ("s1", "s2", s1.full_bin),
+            ("s1", "s2", s1.any_unassigned),
+            ("s2", "s1", s2.finished_approximation_algorithm)
+        ]
+        self.state_machine = StateMachine(
+            self, states=states, transitions=transitions
+        )
+        self.state_machine.set_initial("s1")
+
         self.unassigned_partitions = []
         self.consumer_list = ConsumerList()
-        self.map_partition_consumer = {}
-        self.EXCEEDED_CAPACITY = False
 
-    def get_monitor_last(self): 
+    def get_last_monitor_record(self): 
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
             TopicPartition(topic="data-engineering-monitor", partition=0)
         )
@@ -58,69 +76,10 @@ class Controller:
             msg = self.monitor_consumer.poll(timeout=0)
             if msg != None: 
                 if msg.error() == None:
-                    return msg.value()
+                    return json.loads(msg.value())
             else: 
                 time.sleep(0.01)
 
-
-    def change_state(self, state):
-        self.timeline.add(f'State Change to {state}', code=0)
-        if state == 1: 
-            self.EXCEEDED_CAPACITY = False
-        self.state = state
-
-    def execute_s1(self): 
-        msg_string = self.get_monitor_last()
-        partition_speeds = json.loads(msg_string)
-        print(partition_speeds)
-        for topic_name, p_speeds in partition_speeds.items(): 
-            for p_str, speed  in p_speeds.items():
-                speed = min(CONSUMER_CAPACITY, speed)
-                p_int = int(p_str)
-                tp = TopicPartitionConsumer(topic_name, p_int)
-
-                consumer = self.get_consumer(tp)
-                if consumer == None:
-                    tp.update_speed(speed)
-                    self.unassigned_partitions.append(tp)
-                else:
-                    consumer.update_partition_speed(tp, speed)
-
-
-    def execute_s2(self): 
-        next_assignment = ConsumerList()
-        next_map = {}
-        next_assignment.create_bin()
-        for tp in self.map_partition_consumer:
-            if next_assignment[-1].fits(tp): 
-                next_assignment[-1].add_partition(tp)
-            else: 
-                next_assignment.create_bin()
-                next_assignment[-1].add_partition(tp)
-            next_map[tp] = next_assignment[-1]
-        for tp in self.unassigned_partitions:
-            if next_assignment[-1].fits(tp): 
-                next_assignment[-1].add_partition(tp)
-            else: 
-                next_assignment.create_bin()
-                next_assignment[-1].add_partition(tp)
-            next_map[tp] = next_assignment[-1]
-        self.unassigned_partitions = []
-        self.consumer_list = next_assignment
-        self.map_partition_consumer = next_map
-        print(next_assignment)
-
-
-
-    def execute_s3(self):
-        pass
-    
-    def state_elapsed_time(self): 
-        return self.timeline.current_timediff(code=0)
-
-    def assign_partition_consumer(self, consumer, tp: TopicPartitionConsumer): 
-        self.map_partition_consumer[tp] = consumer
-        consumer.add_partition(tp)
-
-    def get_consumer(self, tp: TopicPartitionConsumer):
-        return self.map_partition_consumer.get(tp)
+    def run(self): 
+        while True:
+            self.state_machine.execute()

@@ -1,11 +1,12 @@
 import functools
 import bisect
 
-from typing import List
+from typing import List, Iterable, Union
 from config import CONSUMER_CAPACITY, ALGO_CAPACITY
 
 
 
+@functools.total_ordering
 class TopicPartitionConsumer:
 
 
@@ -22,6 +23,11 @@ class TopicPartitionConsumer:
             return (self.topic, self.partition) == (other.topic, other.partition)
         return False
 
+    def __lt__(self, other):
+        if not isinstance(other, TopicPartitionConsumer): 
+            raise Exception()
+        return self.speed < other.speed
+
     def __repr__(self): 
         return f'<{self.partition} -> {self.speed}>'
 
@@ -35,12 +41,12 @@ class TopicPartitionConsumer:
 class PartitionSet(dict):
 
 
-    def __init__(self, partition_iter: List[TopicPartitionConsumer] = []): 
+    def __init__(self, partition_iter: Iterable[TopicPartitionConsumer] = []): 
         partition_dict = {
             tp: tp
             for tp in partition_iter
         }
-        super().__init__(**partition_dict)
+        super().__init__(partition_dict)
 
     def __or__(self, other):
         return PartitionSet( set(self.values()) | set(other.values()) )
@@ -62,6 +68,9 @@ class PartitionSet(dict):
     def __repr__(self):
         partition_set = {key for key in self}
         return f'{partition_set}'
+
+    def to_list(self): 
+        return [tp for tp in self]
 
 class TopicConsumer: 
 
@@ -124,7 +133,12 @@ class TopicDictConsumer(dict):
     def copy(self): 
         pass
 
+    def __repr__(self): 
+        values = set(self.values())
+        return f'{values}'
 
+
+@functools.total_ordering
 class DataConsumer:
     
 
@@ -158,6 +172,24 @@ class DataConsumer:
     def __repr__(self): 
         return f'{self.assignment}'
 
+    def __eq__(self, other): 
+        if not isinstance(other, DataConsumer): 
+            return False
+        return self.consumer_id == other.consumer_id
+
+    def __lt__(self, other): 
+        if other == None: 
+            return False
+        if not isinstance(other, DataConsumer): 
+            raise Exception()
+        return self.combined_speed < other.combined_speed
+
+    def partitions(self): 
+        all_partitions = PartitionSet()
+        for topic in self.assignment.values(): 
+            all_partitions = all_partitions | topic.partitions
+        return all_partitions
+
 
 class ConsumerList(list):
     """Mapping to keep track of the consumers that are in use.
@@ -167,9 +199,18 @@ class ConsumerList(list):
     """
 
 
-    def __init__(self): 
+    def __init__(self, clist: List[DataConsumer] = []): 
         super().__init__()
         self.available_indices = []
+        self.map_partition_consumer = {}
+        for i, c in enumerate(clist):
+            if c == None: 
+                self.available_indices.append(i)
+                continue
+            for tp in c.partitions():
+                self.map_partition_consumer[tp] = c
+        super().__init__(clist)
+
 
     def create_bin(self, idx: int = None):
         """Creates a new consumer in the existing list.
@@ -191,10 +232,13 @@ class ConsumerList(list):
             if len(self.available_indices): 
                 lowest_idx = self.available_indices[0]
                 self[lowest_idx] = DataConsumer(lowest_idx)
-                self.available_indices.pop(0)
+                return self.available_indices.pop(0)
             else: 
                 self.append(DataConsumer(last_idx+1))
+                return last_idx+1
         else:
+            if (idx < 0): 
+                raise Exception()
             if (idx > last_idx): 
                 for i in range(idx-last_idx-1): 
                     self.append(None)
@@ -211,6 +255,10 @@ class ConsumerList(list):
                 self[idx] = DataConsumer(idx)
                 self.available_indices.pop(pos)
 
+    def get_idx(self, idx): 
+        if (-len(self) <= idx < len(self)): 
+            return self[idx]
+        return None
 
     def remove_bin(self, idx): 
         last_idx = len(self) - 1
@@ -225,10 +273,27 @@ class ConsumerList(list):
             self[idx] = None
             bisect.insort(self.available_indices, idx)
 
+    def assign_partition_consumer(self, idx, tp): 
+        if((idx > len(self)) or (idx < -len(self))): 
+            raise Exception()
+        if(self[idx] == None): 
+            raise Exception()
+        self[idx].add_partition(tp)
+        self.map_partition_consumer[tp] = self[idx]
+
+    def get_consumer(self, tp: TopicPartitionConsumer):
+        return self.map_partition_consumer.get(tp)
+
     def __sub__(self, other): 
         pass
 
     def __repr__(self): 
         consumers = [c for c in self]
         return f'{consumers}'
+
+    def partitions(self):
+        all_partitions = PartitionSet()
+        for c in self:
+            all_partitions = all_partitions | c.partitions()
+        return all_partitions
 
