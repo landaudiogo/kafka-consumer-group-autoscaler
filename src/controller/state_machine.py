@@ -120,11 +120,10 @@ class StateReassignAlgorithm(State):
         self.ALGORITHM_STATUS = None
 
     def execute(self): 
-        next_assignment = self.algorithm.run(
+        self.controller.next_assignment = self.algorithm.run(
             self.controller.consumer_list,
             self.controller.unassigned_partitions
         )
-        self.controller.consumer_list = next_assignment
         self.ALGORITHM_STATUS = True
 
 
@@ -136,7 +135,28 @@ class StateReassignAlgorithm(State):
 
 
 class StateGroupManagement(State): 
-    pass
+    def __init__(self, controller):
+        super().__init__(controller)
+        self.FINAL_GROUP_STATE = None
+
+    def entry(self): 
+        super().entry()
+        self.FINAL_GROUP_STATE = False
+
+    def exit(self):
+        super().exit()
+        self.FINAL_GROUP_STATE = None
+
+    def group_reached_state(self): 
+        if self.FINAL_GROUP_STATE == None:
+            raise Exception()
+        return self.FINAL_GROUP_STATE
+
+    def execute(self): 
+        res = self.controller.next_assignment - self.controller.consumer_list 
+        print(list(res.batch.values())[0].to_record_list())
+        self.controller.group_metadata = res
+        self.FINAL_GROUP_STATE = True
 
 
 
@@ -197,7 +217,7 @@ class StateMachine:
             self.change_state(sdest)
 
     def change_state(self, destination):
-        print(destination.__class__)
+        print("\n==== ", destination.__class__, ' ====\n\n')
         self.current_state.exit()
         self.current_state = destination
         self.current_state.entry()

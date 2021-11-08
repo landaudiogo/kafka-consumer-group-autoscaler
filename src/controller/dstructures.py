@@ -1,7 +1,8 @@
+import itertools
 import functools
 import bisect
 
-from typing import List, Iterable, Union
+from typing import List, Iterable, Union, Type
 from config import CONSUMER_CAPACITY, ALGO_CAPACITY
 
 
@@ -41,29 +42,25 @@ class TopicPartitionConsumer:
 class PartitionSet(dict):
 
 
-    def __init__(self, partition_iter: Iterable[TopicPartitionConsumer] = []): 
+    def __init__(self, partition_iter: Iterable[TopicPartitionConsumer] = None): 
+        partition_iter = partition_iter if partition_iter != None else []
         partition_dict = {
             tp: tp
             for tp in partition_iter
         }
         super().__init__(partition_dict)
 
-    def __or__(self, other):
+    def __or__(self, other: "PartitionSet"):
         return PartitionSet( set(self.values()) | set(other.values()) )
 
-    def __sub__(self, other): 
-        return ParitionSet( set(self.values()) - set(other.values()) )
+    def __sub__(self, other: "PartitionSet"): 
+        return PartitionSet( set(self.values()) - set(other.values()) )
     
-    def get(self, tp: TopicPartitionConsumer): 
-        return super().get(tp)
-
-    def add_partition(self, tp): 
+    def add_partition(self, tp: TopicPartitionConsumer): 
         self[tp] = tp
 
     def copy(self): 
-        return PartitionSet([
-            tp.copy() for tp in partition_dict.values()
-        ])
+        return PartitionSet([tp.copy() for tp in self])
 
     def __repr__(self):
         partition_set = {key for key in self}
@@ -72,15 +69,23 @@ class PartitionSet(dict):
     def to_list(self): 
         return [tp for tp in self]
 
+
 class TopicConsumer: 
 
 
-    def __init__(self, topic_class, topic_name, partitions: List[TopicPartitionConsumer] = []): 
-        self.topic_class = {}
+    def __init__(
+        self, 
+        topic_class, 
+        topic_name, 
+        partitions: Iterable[TopicPartitionConsumer] = None,
+    ):
+        if partitions == None: 
+            partitions = []
+        self.topic_class = topic_class
         self.topic_name = topic_name
         self.partitions = PartitionSet(partitions)
         self.combined_speed = functools.reduce(
-            lambda tp, accum: accum + tp.speed, 
+            lambda accum, tp: accum + tp.speed, 
             partitions, 0
         )
 
@@ -96,20 +101,37 @@ class TopicConsumer:
         self.partitions.add_partition(topic_partition)
         self.combined_speed += topic_partition.speed
 
+    def remove_partition(self, tp: TopicPartitionConsumer): 
+        if self.partitions.get(tp) == None: 
+            return 
+        tp = self.partitions.pop(tp)
+        self.combined_speed -= tp.speed
+
     def copy(self): 
-        pass
+        return TopicConsumer(
+            self.topic_class, 
+            self.topic_name,
+            self.partitions.to_list(),
+        )
 
     def __repr__(self): 
         d = {self.topic_name: [partition for partition in self.partitions]}
         return f'{d}'
 
+    def to_record(self): 
+        return {
+            "topic_name": self.topic_name,
+            "topic_class": self.topic_class, 
+            "partitions": self.partitions.to_list(),
+            "bq_table": "test",
+        }
 
 
 class TopicDictConsumer(dict):
 
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(kwargs)
 
     def __sub__(self, other):
         ret = TopicDictConsumer()
@@ -137,15 +159,52 @@ class TopicDictConsumer(dict):
         values = set(self.values())
         return f'{values}'
 
+    def partitions(self): 
+        res = PartitionSet()
+        for v in self.values(): 
+            res = res | v.partitions
+        return res
+
+    def to_record(self): 
+        return [value.to_record() for value in self.values()]
+
+    def __eq__(self, other): 
+        if not isinstance(other, TopicDictConsumer): 
+            return False
+        if len(self) != len(other): 
+            return False
+        ref = self if len(self) >= len(other) else other
+        cmp = other if len(other) <= len(self) else self
+        for key, vref in ref.items(): 
+            vcmp = cmp.get(key)
+            if vcmp == None: 
+                return False
+            if vcmp != vref: 
+                return False
+        return True
 
 @functools.total_ordering
-class DataConsumer:
-    
+class DataConsumer: 
 
-    def __init__(self, consumer_id): 
+    def __init__(
+            self, 
+            consumer_id, 
+            assignment: TopicDictConsumer = None
+        ): 
         self.consumer_id = consumer_id
-        self.assignment = TopicDictConsumer()
-        self.combined_speed = 0
+        self.assignment = assignment if assignment != None else TopicDictConsumer()
+        self.combined_speed = functools.reduce(
+            lambda accum, topic: accum + topic.combined_speed,
+            self.assignment.values(), 0
+        )
+
+    def __hash__(self):
+        return hash(self.consumer_id)
+
+    def __eq__(self, other):
+        if not isinstance(other, DataConsumer): 
+            return False
+        return self.consumer_id == other.consumer_id
 
     def update_partition_speed(self, partition, value): 
         topic = self.assignment.get(partition.topic)
@@ -169,6 +228,7 @@ class DataConsumer:
             True if (self.combined_speed + tp.speed < ALGO_CAPACITY) 
             else False
         )
+
     def __repr__(self): 
         return f'{self.assignment}'
 
@@ -185,10 +245,12 @@ class DataConsumer:
         return self.combined_speed < other.combined_speed
 
     def partitions(self): 
-        all_partitions = PartitionSet()
-        for topic in self.assignment.values(): 
-            all_partitions = all_partitions | topic.partitions
-        return all_partitions
+        return self.assignment.partitions()
+
+    def __sub__(self, other):
+        if self.consumer_id != other.consumer_id: 
+            raise Exception()
+        return DataConsumer(self.consumer_id, assignment=self.assignment-other.assignment)
 
 
 class ConsumerList(list):
@@ -285,7 +347,26 @@ class ConsumerList(list):
         return self.map_partition_consumer.get(tp)
 
     def __sub__(self, other): 
-        pass
+        gm = GroupManagement()
+        for i, (final, current) in enumerate(itertools.zip_longest(self, other)):
+            if (final, current) == (None, None): 
+                continue
+            if final == None: 
+                final = DataConsumer(i)
+                gm.remove_consumer(final)
+            if current == None: 
+                current = DataConsumer(i)
+                gm.create_consumer(current)
+            start = final - current
+            stop = current - final
+            for partition in start.partitions():
+                action = Start(final, partition)
+                gm.add_action(action)
+            for partition in stop.partitions():
+                action = Stop(final, partition)
+                gm.add_action(action)
+        return gm
+
 
     def __repr__(self): 
         consumers = [c for c in self]
@@ -296,4 +377,144 @@ class ConsumerList(list):
         for c in self:
             all_partitions = all_partitions | c.partitions()
         return all_partitions
+
+
+class Action:
+    def __init__(
+        self, consumer: DataConsumer, partition: TopicPartitionConsumer
+    ): 
+        self.consumer = consumer
+        self.partition = partition
+
+
+class Stop(Action):
+    pass
+
+
+class Start(Action): 
+    pass
+
+
+class PartitionActions:
+    """Track what kind of Actions that have to be performed for a partition.
+
+    The 2 attributes define the actions the partition has to go through. 
+    """
+
+    def __init__(self, action: Action = None): 
+        self.start = None
+        self.stop = None
+        if action != None:
+            if action.__class__ == Stop:
+                self.stop = action
+            if action.__class__ == Start:
+                self.start = action
+
+    def add_action(self, action: Action): 
+        if action.__class__ == Start:
+            self.start = action
+        elif action.__class__ == Stop:
+            self.stop = action
+        else:
+            raise Exception()
+
+
+class GroupManagement:
+
+
+    def __init__(self): 
+        self.batch = ConsumerMessageBatch()
+        self.map_partition_actions = {}
+        self.consumers_create = []
+        self.consumers_remove = []
+
+    def add_action(self, action: Action): 
+        p_actions = self.map_partition_actions.get(action.partition)
+        if p_actions == None:
+            p_actions = PartitionActions()
+            self.map_partition_actions[action.partition] = p_actions
+
+        if action.__class__ == Stop:
+            if p_actions.start != None:
+                self.batch.remove_action(action)
+            self.batch.add_action(action)
+        elif action.__class__ == Start: 
+            if p_actions.stop == None:
+                self.batch.add_action(action)
+        p_actions.add_action(action)
+
+    def remove_consumer(self, consumer: DataConsumer): 
+        bisect.insort(self.consumers_remove, consumer)
+
+    def create_consumer(self, consumer: DataConsumer):
+        bisect.insort(self.consumers_create, consumer)
+
+    def pop_consumers_remove(self, idx): 
+        pass
+
+    def pop_consumers_create(self, idx):
+        pass
+
+
+
+class ConsumerMessageBatch(dict):
+    """This data structure aims to prepare a Batch of messages to be sent at
+    once.
+
+    The key represents a single instance of type DataConsumer, and the value is an instance of type
+    ConsumerMessage, which can contain messages of type Start or Stop Consuming
+    Commands for the Consumer.
+    """
+
+
+    def add_action(self, action): 
+        cmsg = self.get(action.consumer)
+        if cmsg == None: 
+            cmsg = ConsumerMessage(action.consumer)
+            self[action.consumer] = cmsg
+        cmsg.add_action(action)
+
+
+class ConsumerMessage:
+    """Stores the start and stop messages directed for a single consumer."""
+
+
+    def __init__(self, consumer: DataConsumer): 
+        self.consumer = consumer
+        self.start = TopicDictConsumer()
+        self.stop = TopicDictConsumer()
+
+    def add_action(self, action: Action): 
+        if action.__class__ == Start: 
+            topic = self.start.get(action.partition.topic)
+            if topic == None:
+                topic = TopicConsumer({}, action.partition.topic)
+                self.start[action.partition.topic] = topic
+            topic.add_partition(action.partition)
+        elif action.__class__ == Stop: 
+            topic = self.stop.get(action.partition.topic)
+            if topic == None:
+                topic = TopicConsumer({}, action.partition.topic)
+                self.stop[action.partition.topic] = topic
+            self.stop[action.partition.topic].add_partition(action.partition)
+
+    def remove_action(self, action: Action): 
+        if action.__class__ == Start: 
+            topic = self.start.get(action.partition.topic)
+            if topic == None:
+                return 
+            topic.remove_partition(action.partition)
+        elif action.__class__ == Stop: 
+            topic = self.stop.get(action.partition.topic)
+            if topic == None:
+                return 
+            topic.remove_partition(action.partition)
+
+    def to_record_list(self): 
+        l = []
+        if self.start != TopicDictConsumer():
+            l.append(self.start.to_record())
+        if self.stop != TopicDictConsumer():
+            l.append(self.stop.to_record())
+        return l
 
