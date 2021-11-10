@@ -48,9 +48,9 @@ class Measurement(var partitionBytes: mMap[String, mMap[Int, Long]], var timesta
 object Monitor {
 
     def main(args: Array[String]) = {
-        val adminClient = adminClientCreate("broker:29092") //prod:18.202.250.11 uat:52.213.38.208
+        val adminClient = adminClientCreate("18.202.250.11:9092") //prod:18.202.250.11 uat:52.213.38.208
         val producerClient = producerClientCreate("broker:29092")
-        val topicsOfInterest = Set("monitor_speed_test")
+        val topicsOfInterest = Set("delivery_events_v6_topic")
         val tseries = Queue[Measurement]()
 
         while(true) {
@@ -65,19 +65,14 @@ object Monitor {
             if(tseries.size > 1) {
                 val earliest = tseries.front
                 val latest = tseries.last 
-                if(latest.timestamp - earliest.timestamp > 25000) { 
+                if(latest.timestamp - earliest.timestamp > 3000) { 
                     println(latest.partitionBytes)
                     val writeSpeeds = latest.difference(earliest)
                     val jsonString = Json(DefaultFormats).write(writeSpeeds)
                     println(jsonString)
 
-                    //val record = new ProducerRecord[String, String]("data-engineering-monitor", jsonString)
-                    //producerClient.send(record).get()
-
-                    producerClient.send(new ProducerRecord[String, String](
-                        "monitor-speed", 
-                        writeSpeeds.get("monitor_speed_test").get(0).toString
-                    ))
+                    val record = new ProducerRecord[String, String]("data-engineering-monitor", jsonString)
+                    producerClient.send(record).get()
                 }
             }
 
