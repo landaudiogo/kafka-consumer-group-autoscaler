@@ -53,3 +53,6 @@ METADATA_CONF = {
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
 }
+
+DEPLOYMENT_NAME = open("/etc/podinfo/pod_name", "r").read().replace("\n", "")
+print(DEPLOYMENT_NAME)

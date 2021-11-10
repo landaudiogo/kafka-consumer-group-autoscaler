@@ -7,5 +7,6 @@ docker build . -t consumer/generic &&
     --add-host="ip-172-31-30-37.eu-west-1.compute.internal:54.76.46.203" \
     -it \
     -v $(pwd)/output_data:/usr/src/data \
+    -v generic-consumer:/etc/podinfo \
     --network kafka_kafka-network \
     consumer/generic

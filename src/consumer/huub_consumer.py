@@ -51,6 +51,7 @@ class DEConsumer(Consumer):
         self.change_state_queue = Queue()
         self.current_assignment = DETopicDict()
         self.row_list = RowList()
+        self.metadata_consumer = None
 
     def consume(self, **kwargs) -> RowList:
         records = super().consume(**kwargs)
