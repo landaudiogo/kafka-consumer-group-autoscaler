@@ -1,6 +1,7 @@
 import os
 import importlib
 import json
+import re
 
 
 # DEConsumer
@@ -55,4 +56,6 @@ METADATA_CONF = {
 }
 
 DEPLOYMENT_NAME = open("/etc/podinfo/pod_name", "r").read().replace("\n", "")
-print(DEPLOYMENT_NAME)
+if DEPLOYMENT_NAME:
+    POD_ID = re.search(r"^\w+-\w+-(\w+).*$", DEPLOYMENT_NAME).group(1)
+print(POD_ID)
