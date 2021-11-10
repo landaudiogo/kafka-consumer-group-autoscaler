@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-engineering-dev
+  labels:
+    environment: development

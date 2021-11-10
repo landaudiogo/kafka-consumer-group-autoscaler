@@ -2,8 +2,8 @@ import itertools
 import functools
 import bisect
 
-from typing import List, Iterable, Union, Type
-from config import CONSUMER_CAPACITY, ALGO_CAPACITY
+from typing import List, Iterable, Union, Type, Optional
+from config import CONSUMER_CAPACITY, ALGO_CAPACITY, DETopicMetadata
 
 
 
@@ -33,7 +33,9 @@ class TopicPartitionConsumer:
         return f'<{self.partition} -> {self.speed}>'
 
     def copy(self):
-        return TopicPartitionConsumer(self.topic, self.partition)
+        return TopicPartitionConsumer(
+            self.topic, self.partition, speed=self.speed
+        )
 
     def update_speed(self, value): 
         self.speed = value
@@ -75,13 +77,14 @@ class TopicConsumer:
 
     def __init__(
         self, 
-        topic_class, 
         topic_name, 
         partitions: Iterable[TopicPartitionConsumer] = None,
     ):
         if partitions == None: 
             partitions = []
-        self.topic_class = topic_class
+        topic_metadata = DETopicMetadata[topic_name]
+        self.topic_class = topic_metadata["topic_class"]
+        self.bq_table = topic_metadata["bq_table"]
         self.topic_name = topic_name
         self.partitions = PartitionSet(partitions)
         self.combined_speed = functools.reduce(
@@ -109,9 +112,8 @@ class TopicConsumer:
 
     def copy(self): 
         return TopicConsumer(
-            self.topic_class, 
             self.topic_name,
-            self.partitions.to_list(),
+            self.partitions.copy().to_list(),
         )
 
     def __repr__(self): 
@@ -134,6 +136,8 @@ class TopicDictConsumer(dict):
         super().__init__(kwargs)
 
     def __sub__(self, other):
+        if not isinstance(other, TopicDictConsumer): 
+            raise Exception()
         ret = TopicDictConsumer()
         for key, value in self.items():
             ret[key] = value.copy()
@@ -142,6 +146,8 @@ class TopicDictConsumer(dict):
         return ret
 
     def __or__(self, other): 
+        if not isinstance(other, TopicDictConsumer): 
+            raise Exception()
         ret = TopicDictConsumer()
         for key, value in self.items(): 
             ret[key] = value.copy()
@@ -153,11 +159,12 @@ class TopicDictConsumer(dict):
         return ret
 
     def copy(self): 
-        pass
+        return TopicDictConsumer(
+            **{key: value.copy() for key, value in self.items()}
+        )
 
     def __repr__(self): 
-        values = set(self.values())
-        return f'{values}'
+        return f'{set(self.values())}'
 
     def partitions(self): 
         res = PartitionSet()
@@ -173,10 +180,8 @@ class TopicDictConsumer(dict):
             return False
         if len(self) != len(other): 
             return False
-        ref = self if len(self) >= len(other) else other
-        cmp = other if len(other) <= len(self) else self
-        for key, vref in ref.items(): 
-            vcmp = cmp.get(key)
+        for key, vref in self.items(): 
+            vcmp = other.get(key)
             if vcmp == None: 
                 return False
             if vcmp != vref: 
@@ -217,7 +222,7 @@ class DataConsumer:
     def add_partition(self, partition: TopicPartitionConsumer): 
         topic = self.assignment.get(partition.topic)
         if topic == None: 
-            topic = TopicConsumer({}, partition.topic)
+            topic = TopicConsumer(partition.topic)
             self.assignment[partition.topic] = topic
         self.combined_speed -= topic.combined_speed
         topic.add_partition(partition)
@@ -230,14 +235,9 @@ class DataConsumer:
         )
 
     def __repr__(self): 
-        return f'{self.assignment}'
+        return f'{self.consumer_id}'
 
-    def __eq__(self, other): 
-        if not isinstance(other, DataConsumer): 
-            return False
-        return self.consumer_id == other.consumer_id
-
-    def __lt__(self, other): 
+    def __lt__(self, other: Optional['DataConsumer']): 
         if other == None: 
             return False
         if not isinstance(other, DataConsumer): 
@@ -261,8 +261,10 @@ class ConsumerList(list):
     """
 
 
-    def __init__(self, clist: List[DataConsumer] = []): 
+    def __init__(self, clist: Optional[List[DataConsumer]] = None): 
         super().__init__()
+        if clist == None: 
+            clist = []
         self.available_indices = []
         self.map_partition_consumer = {}
         for i, c in enumerate(clist):
@@ -274,7 +276,7 @@ class ConsumerList(list):
         super().__init__(clist)
 
 
-    def create_bin(self, idx: int = None):
+    def create_bin(self, idx: Optional[int] = None):
         """Creates a new consumer in the existing list.
 
         If the idx is provided, the consumer will be created at that index. In
@@ -317,14 +319,14 @@ class ConsumerList(list):
                 self[idx] = DataConsumer(idx)
                 self.available_indices.pop(pos)
 
-    def get_idx(self, idx): 
+    def get_idx(self, idx: int): 
         if (-len(self) <= idx < len(self)): 
             return self[idx]
         return None
 
-    def remove_bin(self, idx): 
+    def remove_bin(self, idx: int): 
         last_idx = len(self) - 1
-        if (idx > last_idx) or (self[idx] == None): 
+        if ((idx > last_idx) or (idx < 0)) or (self[idx] == None): 
             raise Exception()
         if idx == last_idx: 
             self.pop(-1)
@@ -336,7 +338,7 @@ class ConsumerList(list):
             bisect.insort(self.available_indices, idx)
 
     def assign_partition_consumer(self, idx, tp): 
-        if((idx > len(self)) or (idx < -len(self))): 
+        if((idx >= len(self)) or (idx < -len(self))): 
             raise Exception()
         if(self[idx] == None): 
             raise Exception()
@@ -353,10 +355,10 @@ class ConsumerList(list):
                 continue
             if final == None: 
                 final = DataConsumer(i)
-                gm.remove_consumer(final)
+                gm.add_consumers_remove(final)
             if current == None: 
                 current = DataConsumer(i)
-                gm.create_consumer(current)
+                gm.add_consumers_create(current)
             start = final - current
             stop = current - final
             for partition in start.partitions():
@@ -367,11 +369,6 @@ class ConsumerList(list):
                 gm.add_action(action)
         return gm
 
-
-    def __repr__(self): 
-        consumers = [c for c in self]
-        return f'{consumers}'
-
     def partitions(self):
         all_partitions = PartitionSet()
         for c in self:
@@ -381,7 +378,9 @@ class ConsumerList(list):
 
 class Action:
     def __init__(
-        self, consumer: DataConsumer, partition: TopicPartitionConsumer
+        self, 
+        consumer: DataConsumer, 
+        partition: TopicPartitionConsumer
     ): 
         self.consumer = consumer
         self.partition = partition
@@ -401,16 +400,19 @@ class PartitionActions:
     The 2 attributes define the actions the partition has to go through. 
     """
 
-    def __init__(self, action: Action = None): 
+    def __init__(self, partition: TopicPartitionConsumer, action: Action = None): 
+        self.partition = partition
         self.start = None
         self.stop = None
         if action != None:
             if action.__class__ == Stop:
                 self.stop = action
-            if action.__class__ == Start:
+            elif action.__class__ == Start:
                 self.start = action
 
     def add_action(self, action: Action): 
+        if not action.partition == self.partition: 
+            raise Exception()
         if action.__class__ == Start:
             self.start = action
         elif action.__class__ == Stop:
@@ -425,13 +427,13 @@ class GroupManagement:
     def __init__(self): 
         self.batch = ConsumerMessageBatch()
         self.map_partition_actions = {}
-        self.consumers_create = []
-        self.consumers_remove = []
+        self.consumers_create = set()
+        self.consumers_remove = set()
 
     def add_action(self, action: Action): 
         p_actions = self.map_partition_actions.get(action.partition)
         if p_actions == None:
-            p_actions = PartitionActions()
+            p_actions = PartitionActions(action.partition)
             self.map_partition_actions[action.partition] = p_actions
 
         if action.__class__ == Stop:
@@ -443,17 +445,17 @@ class GroupManagement:
                 self.batch.add_action(action)
         p_actions.add_action(action)
 
-    def remove_consumer(self, consumer: DataConsumer): 
-        bisect.insort(self.consumers_remove, consumer)
+    def add_consumers_remove(self, consumer: DataConsumer): 
+        self.consumers_remove.add(consumer)
 
-    def create_consumer(self, consumer: DataConsumer):
-        bisect.insort(self.consumers_create, consumer)
+    def add_consumers_create(self, consumer: DataConsumer):
+        self.consumers_create.add(consumer)
 
-    def pop_consumers_remove(self, idx): 
-        pass
+    def pop_consumers_remove(self, consumer: DataConsumer): 
+        self.consumers_remove.remove()
 
-    def pop_consumers_create(self, idx):
-        pass
+    def pop_consumers_create(self, consumer: DataConsumer):
+        self.consumers_create.remove(consumer)
 
 
 
@@ -467,7 +469,7 @@ class ConsumerMessageBatch(dict):
     """
 
 
-    def add_action(self, action): 
+    def add_action(self, action: Action): 
         cmsg = self.get(action.consumer)
         if cmsg == None: 
             cmsg = ConsumerMessage(action.consumer)
@@ -488,13 +490,13 @@ class ConsumerMessage:
         if action.__class__ == Start: 
             topic = self.start.get(action.partition.topic)
             if topic == None:
-                topic = TopicConsumer({}, action.partition.topic)
+                topic = TopicConsumer(action.partition.topic)
                 self.start[action.partition.topic] = topic
             topic.add_partition(action.partition)
         elif action.__class__ == Stop: 
             topic = self.stop.get(action.partition.topic)
             if topic == None:
-                topic = TopicConsumer({}, action.partition.topic)
+                topic = TopicConsumer(action.partition.topic)
                 self.stop[action.partition.topic] = topic
             self.stop[action.partition.topic].add_partition(action.partition)
 

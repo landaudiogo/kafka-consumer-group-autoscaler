@@ -30,6 +30,7 @@ class State:
         self.transitions = []
 
     def entry(self):
+        print("==== ", self.__class__.__name__, ' ====')
         self.start_time = time.time()
 
     def elapsed_time(self): 
@@ -73,10 +74,7 @@ class StateSentinel(State):
         return False
             
     def any_unassigned(self): 
-        return (
-            False if len(self.controller.unassigned_partitions) == 0 
-            else True
-        )
+        return not (len(self.controller.unassigned_partitions) == 0)
 
     def entry(self): 
         super().entry()
@@ -84,7 +82,7 @@ class StateSentinel(State):
 
     def execute(self): 
         partition_speeds = self.controller.get_last_monitor_record()
-        print(partition_speeds)
+        # print(partition_speeds)
         for topic_name, p_speeds in partition_speeds.items(): 
             for p_str, speed  in p_speeds.items():
                 speed = min(CONSUMER_CAPACITY, speed)
@@ -97,8 +95,6 @@ class StateSentinel(State):
                     self.controller.unassigned_partitions.append(tp)
                 else:
                     consumer.update_partition_speed(tp, speed)
-
-
 
 
 class StateReassignAlgorithm(State): 
@@ -125,7 +121,6 @@ class StateReassignAlgorithm(State):
             self.controller.unassigned_partitions
         )
         self.ALGORITHM_STATUS = True
-
 
     def finished_approximation_algorithm(self): 
         if self.ALGORITHM_STATUS != None:
@@ -154,8 +149,8 @@ class StateGroupManagement(State):
 
     def execute(self): 
         res = self.controller.next_assignment - self.controller.consumer_list 
-        print(list(res.batch.values())[0].to_record_list())
-        self.controller.group_metadata = res
+        # print(list(res.batch.values())[0].to_record_list())
+        self.controller.create_consumers(res.consumers_create)
         self.FINAL_GROUP_STATE = True
 
 
@@ -217,11 +212,13 @@ class StateMachine:
             self.change_state(sdest)
 
     def change_state(self, destination):
-        print("\n==== ", destination.__class__, ' ====\n\n')
         self.current_state.exit()
         self.current_state = destination
         self.current_state.entry()
 
     def initialize(self): 
+        if self.initial == None: 
+            raise Exception()
+        print("==== Starting State Machine ====")
         self.current_state = self.initial
         self.current_state.entry()

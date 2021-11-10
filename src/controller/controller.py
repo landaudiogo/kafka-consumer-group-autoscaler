@@ -1,14 +1,19 @@
 import time
 import json
+import copy
+import yaml
 
-from typing import Tuple
+from typing import Tuple, List
 from confluent_kafka import Consumer, TopicPartition
+from kubernetes.client import (
+    Configuration, AppsV1Api, ApiClient
+)
+
 from config import (
     MONITOR_CONSUMER_CONFIG, CONTROLLER_CONSUMER_CONFIG, 
     CONSUMER_CAPACITY
 )
-from utilities import Timeline
-from dstructures import TopicPartitionConsumer, ConsumerList
+from dstructures import TopicPartitionConsumer, ConsumerList, DataConsumer
 from state_machine import (
     StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
     State
@@ -64,6 +69,20 @@ class Controller:
 
         self.unassigned_partitions = []
         self.consumer_list = ConsumerList()
+        self.next_assignment = None
+
+        configuration = Configuration()
+        with open('kubernetes-cluster/token', 'r') as f_token, \
+             open('kubernetes-cluster/cluster-ip', 'r') as f_ip, \
+             open('template-deployment.yml', 'r') as f_td:
+            token = f_token.read().replace('\n', '')
+            cluster_ip = f_ip.read().replace('\n', '')
+            self.template_deployment = yaml.safe_load(f_td)
+        configuration.api_key["authorization"] = token 
+        configuration.api_key_prefix["authorization"] = "Bearer"
+        configuration.host = f"https://{cluster_ip}"
+        configuration.ssl_ca_cert = 'kubernetes-cluster/cluster.ca'
+        self.kube_configuration = configuration
 
     def get_last_monitor_record(self): 
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
@@ -83,6 +102,26 @@ class Controller:
                     return json.loads(msg.value())
             else: 
                 time.sleep(0.01)
+
+    def create_consumers(self, consumers: List[DataConsumer]): 
+        with ApiClient(self.kube_configuration) as api_client:
+            c = AppsV1Api(api_client)
+            existing_deployments = [
+                dep.metadata.name
+                for dep in c.list_namespaced_deployment("data-engineering-dev").items
+            ]
+            print(existing_deployments)
+            for consumer in consumers:
+                deployment_id = f'{self.template_deployment["metadata"]["name"]}-{consumer.consumer_id+1}'
+                if deployment_id in existing_deployments:
+                    continue
+                body = copy.deepcopy(self.template_deployment)
+                body["metadata"]["name"] = deployment_id
+                body["metadata"]["labels"]["app"] = deployment_id
+                body["spec"]["selector"]["matchLabels"]["app"] = deployment_id
+                body["spec"]["template"]["metadata"]["labels"]["app"] = deployment_id
+                deployments = c.create_namespaced_deployment("data-engineering-dev", body)
+                print(f"created consumer with id {deployment_id}")
 
     def run(self): 
         while True:
