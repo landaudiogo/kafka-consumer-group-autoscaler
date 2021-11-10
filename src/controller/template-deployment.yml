@@ -32,7 +32,7 @@ spec:
       - name: landauhubkey
       containers:
         - name: consumer-capacity
-          image: thehuub/consumer-capacity:v1.2.0
+          image: thehuub/consumer-capacity:v1.2.1
           imagePullPolicy: Always
           resources:
             requests: 
