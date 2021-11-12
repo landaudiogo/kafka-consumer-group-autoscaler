@@ -4,6 +4,12 @@ import json
 import re
 
 
+DEPLOYMENT_NAME = open("/etc/podinfo/pod_name", "r").read().replace("\n", "")
+POD_ID = None
+if DEPLOYMENT_NAME:
+    POD_ID = re.search(r"^\w+-\w+-(\w+).*$", DEPLOYMENT_NAME).group(1)
+    print(POD_ID)
+
 # DEConsumer
 BATCH_BYTES = int(os.getenv('BATCH_BYTES'))
 WAIT_TIME_SECS = float(os.getenv('WAIT_TIME_SECS'))
@@ -54,8 +60,9 @@ METADATA_CONF = {
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
 }
+METADATA_PRODUCER = {
+    "bootstrap.servers": ','.join(KAFKA["uat"]),
+    "client.id": f"de-consumer-{POD_ID if POD_ID != None else 1}"
+}
 
-DEPLOYMENT_NAME = open("/etc/podinfo/pod_name", "r").read().replace("\n", "")
-if DEPLOYMENT_NAME:
-    POD_ID = re.search(r"^\w+-\w+-(\w+).*$", DEPLOYMENT_NAME).group(1)
-print(POD_ID)
+

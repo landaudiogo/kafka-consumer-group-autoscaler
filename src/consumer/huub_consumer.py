@@ -6,12 +6,16 @@ import fastavro
 from io import BytesIO
 from queue import Queue
 from typing import List, Dict
+from confluent_kafka import (
+    Consumer, TopicPartition, KafkaError, OFFSET_BEGINNING, OFFSET_END,
+    OFFSET_INVALID, OFFSET_STORED, Producer
+)
 
-from config import BATCH_BYTES, METADATA_CONF
-from confluent_kafka import Consumer, TopicPartition, KafkaError, OFFSET_BEGINNING, OFFSET_END, OFFSET_INVALID, OFFSET_STORED
 from utils import (
     eprint, Row, RowList, BatchList, Batch
 )
+from config import BATCH_BYTES, METADATA_CONF, METADATA_PRODUCER
+from de_avro import DEControllerSchema
 
 
 
@@ -83,6 +87,7 @@ class DEConsumer(Consumer):
                     for tp in value.partitions
             ]
             if inc_assign:
+                self.metadata_consumer.started_consuming = inc_assign_dict
                 self.incremental_assign(inc_assign)
 
             inc_unassign_dict = self.current_assignment - future
@@ -93,6 +98,7 @@ class DEConsumer(Consumer):
                     for tp in value.partitions
             ]
             if inc_unassign:
+                self.metadata_consumer.stopped_consuming = inc_unassign_dict
                 self.incremental_unassign(inc_unassign)
                 inc_unassign = set(
                     DETopicPartition(topic=tp.topic, partition=tp.partition)
@@ -140,6 +146,26 @@ class DEMetadataConsumer(Consumer):
         super().__init__(self.conf_copy)
         self.obj_from_msg = obj_from_msg
         self.assign(list_topic_partition)
+        self.metadata_producer = Producer(METADATA_PRODUCER)
+
+        self._started_consuming = None
+        self._stopped_consuming = None
+
+    @property
+    def started_consuming(self): 
+        return self._started_consuming
+
+    @started_consuming.setter
+    def started_consuming(self, value):
+        self._started_consuming = value
+
+    @property
+    def stopped_consuming(self): 
+        return self._stopped_consuming
+
+    @stopped_consuming.setter
+    def stopped_consuming(self, value): 
+        self._stopped_consuming = value
 
     def consume(self):
         """"Data has to be read from the metadata partition until the queue is
@@ -172,6 +198,41 @@ class DEMetadataConsumer(Consumer):
                 list_obj.append(obj)
 
         return list_obj
+
+    def commit(self): 
+        if self.started_consuming: 
+            with BytesIO() as stream:
+                parsed_shchema = fastavro.parse_schema(DEControllerSchema)
+                fastavro.schemaless_writer(
+                    parsed_schema,
+                    self.started_consuming.to_record()
+                )
+                self.metadata_producer.producer(
+                    "data-engineering-controller", 
+                    value=schema.getvalue(),
+                    headers={
+                        "event_type": "StartConsumingEvent",
+                        "serializer": "de_avro.DEControllerSchema"
+                    },
+                    partition=0,
+                )
+        if self.stopped_consuming:
+            with BytesIO() as stream:
+                parsed_shchema = fastavro.parse_schema(DEControllerSchema)
+                fastavro.schemaless_writer(
+                    parsed_schema,
+                    self.started_consuming.to_record()
+                )
+                self.metadata_producer.producer(
+                    "data-engineering-controller", 
+                    value=stream.getvalue(),
+                    headers={
+                        "event_type": "StopConsumingEvent",
+                        "serializer": "de_avro.DEControllerSchema"
+                    },
+                    partition=0,
+                )
+        super().commit()
 
 
 
@@ -280,6 +341,15 @@ class DETopic:
         plist = [p.partition for p in self.partitions]
         return f"{plist}"
 
+    def to_record(self):
+        return {
+            "topic_name": self.topic_name,
+            "topic_class": self.kwargs["topic_class"],
+            "partitions": [p.partition for partition in self.partitions],
+            "bq_table": self.table,
+            "ignore_events": self.ignore_events,
+        }
+
 
 
 class DETopicPartition(TopicPartition): 
@@ -307,7 +377,9 @@ class DETopicPartition(TopicPartition):
 class DETopicDict(dict):
 
 
-    def __init__(self, **kwargs): 
+    def __init__(self, headers=None, **kwargs): 
+        if headers == None: 
+            self.headers={}
         super().__init__(**kwargs)
 
     def __or__(self, other):
@@ -335,6 +407,9 @@ class DETopicDict(dict):
         for key, value in self.items(): 
             ret[key] = value.copy()
         return ret
+
+    def to_record(self): 
+        return [value.to_record() for value in self.values()]
 
 
 class ChangeStateEvent(DETopicDict):

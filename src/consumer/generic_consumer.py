@@ -6,6 +6,7 @@ import gc
 import tracemalloc
 import asyncio
 import fastavro
+import signal
 
 from bq_helper import GCPClient
 from confluent_kafka import TopicPartition
@@ -18,6 +19,12 @@ from config import (
 from utils import (
     Timeline, RowList, process
 )
+
+def signal_handler(sig, frame):
+    print('Exiting Safely')
+    exit(0)
+
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 timeline = Timeline()   # CODES 
