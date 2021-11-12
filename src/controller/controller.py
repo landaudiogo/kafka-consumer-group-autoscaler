@@ -50,6 +50,8 @@ class Controller:
             topic="data-engineering-controller", partition=0
         )])
         self.controller_producer = Producer(CONTROLLER_PRODUCER_CONFIG)
+        self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
+        self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
 
 
         s1 = StateSentinel(self)
@@ -91,8 +93,6 @@ class Controller:
         configuration.ssl_ca_cert = 'kubernetes-cluster/cluster.ca'
         self.kube_configuration = configuration
 
-        self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
-        self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
 
     def get_last_monitor_record(self): 
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
@@ -170,7 +170,14 @@ class Controller:
                         partition=consumer.consumer_id+1
                     )
         self.controller_producer.flush()
-
+        while True:
+            msg = self.de_controller_metadata.poll(timeout=1.0)
+            if msg == None: 
+                continue
+            else:
+                with BytesIO(msg.value()) as stream:
+                    record = fastavro.schemaless_reader(stream, parsed_schema)
+                    print(record)
 
     def run(self): 
         while True:
