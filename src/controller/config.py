@@ -7,9 +7,17 @@ MONITOR_CONSUMER_CONFIG = {
 }
 
 CONTROLLER_CONSUMER_CONFIG = {
-    'bootstrap.servers': "broker:29092", 
+    'bootstrap.servers': "52.213.38.208:9092", 
     'group.id': "data-engineering-controller", 
     'auto.offset.reset': 'earliest',
+}
+
+ADMIN_CONFIG = {
+    'bootstrap.servers': "52.213.38.208:9092", 
+}
+CONTROLLER_PRODUCER_CONFIG = {
+    'bootstrap.servers': '52.213.38.208:9092', 
+    'client.id': 'controller-producer', 
 }
 
 MAX_TIME_S1 = 300 # 5 minutes

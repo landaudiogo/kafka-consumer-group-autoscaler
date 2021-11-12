@@ -2,22 +2,28 @@ import time
 import json
 import copy
 import yaml
+import fastavro
 
+from io import BytesIO
 from typing import Tuple, List
-from confluent_kafka import Consumer, TopicPartition
+from confluent_kafka import Consumer, TopicPartition, Producer
+from confluent_kafka.admin import AdminClient, ConfigResource, NewPartitions
 from kubernetes.client import (
     Configuration, AppsV1Api, ApiClient
 )
 
 from config import (
     MONITOR_CONSUMER_CONFIG, CONTROLLER_CONSUMER_CONFIG, 
-    CONSUMER_CAPACITY
+    CONSUMER_CAPACITY, ADMIN_CONFIG, CONTROLLER_PRODUCER_CONFIG
 )
-from dstructures import TopicPartitionConsumer, ConsumerList, DataConsumer
+from dstructures import (
+    TopicPartitionConsumer, ConsumerList, DataConsumer, GroupManagement
+)
 from state_machine import (
     StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
     State
 )
+from de_avro import DEControllerSchema
 
 
 
@@ -41,8 +47,9 @@ class Controller:
 
         self.controller_consumer = Consumer(CONTROLLER_CONSUMER_CONFIG)
         self.controller_consumer.assign([TopicPartition(
-            topic="data-engineering-monitor", partition=0
+            topic="data-engineering-controller", partition=0
         )])
+        self.controller_producer = Producer(CONTROLLER_PRODUCER_CONFIG)
 
 
         s1 = StateSentinel(self)
@@ -84,6 +91,9 @@ class Controller:
         configuration.ssl_ca_cert = 'kubernetes-cluster/cluster.ca'
         self.kube_configuration = configuration
 
+        self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
+        self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
+
     def get_last_monitor_record(self): 
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
             TopicPartition(topic="data-engineering-monitor", partition=0)
@@ -104,24 +114,63 @@ class Controller:
                 time.sleep(0.01)
 
     def create_consumers(self, consumers: List[DataConsumer]): 
+        if not len(consumers):
+            return 
         with ApiClient(self.kube_configuration) as api_client:
-            c = AppsV1Api(api_client)
+            kube_client = AppsV1Api(api_client)
             existing_deployments = [
                 dep.metadata.name
-                for dep in c.list_namespaced_deployment("data-engineering-dev").items
+                for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
             ]
-            print(existing_deployments)
+            
+            if (len(self.next_assignment)+1) > self.get_num_partitions():
+                self.create_partitions(len(self.next_assignment) + 1)
+
             for consumer in consumers:
                 deployment_id = f'{self.template_deployment["metadata"]["name"]}-{consumer.consumer_id+1}'
                 if deployment_id in existing_deployments:
                     continue
-                body = copy.deepcopy(self.template_deployment)
-                body["metadata"]["name"] = deployment_id
-                body["metadata"]["labels"]["app"] = deployment_id
-                body["spec"]["selector"]["matchLabels"]["app"] = deployment_id
-                body["spec"]["template"]["metadata"]["labels"]["app"] = deployment_id
-                deployments = c.create_namespaced_deployment("data-engineering-dev", body)
+                body = self.change_template_deployment(deployment_id)
+                deployments = kube_client.create_namespaced_deployment("data-engineering-dev", body)
                 print(f"created consumer with id {deployment_id}")
+
+    def get_num_partitions(self, topic="data-engineering-controller"):
+        d = self.de_controller_metadata.list_topics(topic)
+        return len(d.topics[topic].partitions)
+
+    def create_partitions(self, total_partitions): 
+        future = self.kafka_cluster_admin.create_partitions([
+            NewPartitions("data-engineering-controller", total_partitions)
+        ]).get("data-engineering-controller")
+        if future.result() == None: 
+            print(f"data-engineering-controller has now {total_partitions} partitions")
+
+    def change_template_deployment(self, deployment_id): 
+        body = copy.deepcopy(self.template_deployment)
+        body["metadata"]["name"] = deployment_id
+        body["metadata"]["labels"]["app"] = deployment_id
+        body["spec"]["selector"]["matchLabels"]["app"] = deployment_id
+        body["spec"]["template"]["metadata"]["labels"]["app"] = deployment_id
+        return body
+
+    def change_consumers_state(self, delta: GroupManagement):
+        for consumer, cmessages in delta.batch.items():
+            for record in cmessages.to_record_list():
+                print("=> ", consumer.consumer_id+1, " <=")
+                print(record)
+                with BytesIO() as stream:
+                    parsed_schema = fastavro.parse_schema(DEControllerSchema)
+                    fastavro.schemaless_writer(
+                        stream, parsed_schema, record["payload"]
+                    )
+                    self.controller_producer.produce(
+                        "data-engineering-controller",
+                        value=stream.getvalue(),
+                        headers=record["headers"],
+                        partition=consumer.consumer_id+1
+                    )
+        self.controller_producer.flush()
+
 
     def run(self): 
         while True:

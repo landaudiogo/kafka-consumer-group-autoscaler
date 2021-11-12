@@ -124,15 +124,18 @@ class TopicConsumer:
         return {
             "topic_name": self.topic_name,
             "topic_class": self.topic_class, 
-            "partitions": self.partitions.to_list(),
-            "bq_table": "test",
+            "partitions": [tp.partition for tp in self.partitions.to_list()],
+            "bq_table": self.bq_table,
+            "ignore_events": [],
         }
 
 
 class TopicDictConsumer(dict):
 
 
-    def __init__(self, **kwargs):
+    def __init__(self, headers=None, **kwargs):
+        if headers != None:
+            self.headers = headers
         super().__init__(kwargs)
 
     def __sub__(self, other):
@@ -173,7 +176,13 @@ class TopicDictConsumer(dict):
         return res
 
     def to_record(self): 
-        return [value.to_record() for value in self.values()]
+        return {
+            "headers": self.headers, 
+            "payload": [
+                value.to_record() 
+                for value in self.values()
+            ]
+        }
 
     def __eq__(self, other): 
         if not isinstance(other, TopicDictConsumer): 
@@ -483,8 +492,19 @@ class ConsumerMessage:
 
     def __init__(self, consumer: DataConsumer): 
         self.consumer = consumer
-        self.start = TopicDictConsumer()
-        self.stop = TopicDictConsumer()
+        self.start = TopicDictConsumer(
+            headers={
+                "event_type":"StartConsumingCommand",
+                "serializer": "de_avro.DEControllerSchema",
+            }
+        )
+        self.stop = TopicDictConsumer(
+            headers={
+                "event_type":"StopConsumingCommand",
+                "serializer": "de_avro.DEControllerSchema",
+            }
+        )
+
 
     def add_action(self, action: Action): 
         if action.__class__ == Start: 

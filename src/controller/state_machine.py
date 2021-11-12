@@ -148,9 +148,10 @@ class StateGroupManagement(State):
         return self.FINAL_GROUP_STATE
 
     def execute(self): 
-        res = self.controller.next_assignment - self.controller.consumer_list 
+        delta = self.controller.next_assignment - self.controller.consumer_list 
         # print(list(res.batch.values())[0].to_record_list())
-        self.controller.create_consumers(res.consumers_create)
+        self.controller.create_consumers(delta.consumers_create)
+        self.controller.change_consumers_state(delta)
         self.FINAL_GROUP_STATE = True
 
 
