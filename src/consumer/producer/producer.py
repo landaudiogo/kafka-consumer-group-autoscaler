@@ -265,7 +265,7 @@ producer_conf = {
 producer = Producer(producer_conf)
 
 with BytesIO() as stream:
-    fastavro.schemaless_writer(stream, parsed_schema, ControllerSchemaExample2)
+    fastavro.schemaless_writer(stream, parsed_schema, ControllerSchemaExample1)
     producer.produce(
         "data-engineering-controller", stream.getvalue(),
         partition=1, 

@@ -8,7 +8,9 @@ DEPLOYMENT_NAME = open("/etc/podinfo/pod_name", "r").read().replace("\n", "")
 POD_ID = None
 if DEPLOYMENT_NAME:
     POD_ID = re.search(r"^\w+-\w+-(\w+).*$", DEPLOYMENT_NAME).group(1)
-    print(POD_ID)
+else:
+    POD_ID = 1
+print(POD_ID)
 
 # DEConsumer
 BATCH_BYTES = int(os.getenv('BATCH_BYTES'))

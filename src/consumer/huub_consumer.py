@@ -81,23 +81,15 @@ class DEConsumer(Consumer):
 
             inc_assign_dict = future - self.current_assignment
             print("assign", inc_assign_dict)
-            inc_assign = [
-                TopicPartition(topic=tp.topic, partition=tp.partition)
-                for key, value in inc_assign_dict.items()
-                    for tp in value.partitions
-            ]
-            if inc_assign:
+            inc_assign = inc_assign_dict.to_topic_partition_list() 
+            if inc_assign != []:
                 self.metadata_consumer.started_consuming = inc_assign_dict
                 self.incremental_assign(inc_assign)
 
             inc_unassign_dict = self.current_assignment - future
             print("unassign", inc_unassign_dict)
-            inc_unassign = [
-                TopicPartition(topic=tp.topic, partition=tp.partition)
-                for key, value in inc_unassign_dict.items()
-                    for tp in value.partitions
-            ]
-            if inc_unassign:
+            inc_unassign = inc_unassign_dict.to_topic_partition_list()
+            if inc_unassign != []:
                 self.metadata_consumer.stopped_consuming = inc_unassign_dict
                 self.incremental_unassign(inc_unassign)
                 inc_unassign = set(
@@ -146,8 +138,9 @@ class DEMetadataConsumer(Consumer):
         super().__init__(self.conf_copy)
         self.obj_from_msg = obj_from_msg
         self.assign(list_topic_partition)
-        self.metadata_producer = Producer(METADATA_PRODUCER)
 
+        self.metadata_producer = Producer(METADATA_PRODUCER)
+        self.value_serializer = AvroSerializer(DEControllerSchema)
         self._started_consuming = None
         self._stopped_consuming = None
 
@@ -196,44 +189,40 @@ class DEMetadataConsumer(Consumer):
                 msg_deserialized = self.value_deserializer(msg)
                 obj = self.obj_from_msg(headers=dict(msg.headers()), value=msg_deserialized)
                 list_obj.append(obj)
-
         return list_obj
 
     def commit(self): 
         if self.started_consuming: 
-            with BytesIO() as stream:
-                parsed_shchema = fastavro.parse_schema(DEControllerSchema)
-                fastavro.schemaless_writer(
-                    parsed_schema,
-                    self.started_consuming.to_record()
-                )
-                self.metadata_producer.producer(
-                    "data-engineering-controller", 
-                    value=schema.getvalue(),
-                    headers={
-                        "event_type": "StartConsumingEvent",
-                        "serializer": "de_avro.DEControllerSchema"
-                    },
-                    partition=0,
-                )
+            parsed_record = self.value_serializer(self.started_consuming.to_record())
+            self.metadata_producer.produce(
+                "data-engineering-controller", 
+                value=parsed_record,
+                headers={
+                    "event_type": "StartConsumingEvent",
+                    "serializer": "de_avro.DEControllerSchema"
+                },
+                partition=0,
+            )
+
         if self.stopped_consuming:
-            with BytesIO() as stream:
-                parsed_shchema = fastavro.parse_schema(DEControllerSchema)
-                fastavro.schemaless_writer(
-                    parsed_schema,
-                    self.started_consuming.to_record()
-                )
-                self.metadata_producer.producer(
-                    "data-engineering-controller", 
-                    value=stream.getvalue(),
-                    headers={
-                        "event_type": "StopConsumingEvent",
-                        "serializer": "de_avro.DEControllerSchema"
-                    },
-                    partition=0,
-                )
+            parsed_record = self.value_serializer(self.stopped_consuming.to_record())
+            self.metadata_producer.produce(
+                "data-engineering-controller", 
+                value=parsed_record,
+                headers={
+                    "event_type": "StopConsumingEvent",
+                    "serializer": "de_avro.DEControllerSchema"
+                },
+                partition=0,
+            )
+
+        self.metadata_producer.flush()
+        self.stopped_consuming = None
+        self.started_consuming = None
         super().commit()
 
+    def parse_record(self, record):
+        pass
 
 
 
@@ -258,7 +247,23 @@ class AvroDeserializer:
         with BytesIO(msg.value()) as stream:
             return fastavro.schemaless_reader(stream, writer_schema)
 
-            
+
+class AvroSerializer:
+
+
+    def __init__(self, schema):
+        self.parsed_schema = fastavro.parse_schema(schema)
+
+    def __call__(self, record):
+        with BytesIO() as stream:
+            fastavro.schemaless_writer(
+                stream, 
+                self.parsed_schema, 
+                record
+            )
+            return stream.getvalue()
+
+
 
 class DETopic:
 
@@ -288,13 +293,7 @@ class DETopic:
 
 
     def copy(self): 
-        return DETopic(**{
-            "topic_name": self.kwargs["topic_name"],
-            "topic_class": self.kwargs["topic_class"],
-            "partitions": [p.partition for p in self.partitions],
-            "bq_table": self.table,
-            "ignore_events": self.ignore_events
-        })
+        return DETopic(**self.to_record())
 
     def deserialize_msg_value(self, msg): 
         item_type_name = dict(msg.headers()).get('item_type_name').decode('utf-8')
@@ -343,9 +342,9 @@ class DETopic:
 
     def to_record(self):
         return {
-            "topic_name": self.topic_name,
+            "topic_name": self.kwargs["topic_name"],
             "topic_class": self.kwargs["topic_class"],
-            "partitions": [p.partition for partition in self.partitions],
+            "partitions": [p.partition for p in self.partitions],
             "bq_table": self.table,
             "ignore_events": self.ignore_events,
         }
@@ -410,6 +409,13 @@ class DETopicDict(dict):
 
     def to_record(self): 
         return [value.to_record() for value in self.values()]
+
+    def to_topic_partition_list(self): 
+        return [
+            TopicPartition(topic=tp.topic, partition=tp.partition)
+            for key, value in self.items()
+                for tp in value.partitions
+        ]
 
 
 class ChangeStateEvent(DETopicDict):
