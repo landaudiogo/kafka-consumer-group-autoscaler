@@ -171,13 +171,14 @@ class Controller:
                     )
         self.controller_producer.flush()
         while True:
-            msg = self.de_controller_metadata.poll(timeout=1.0)
+            msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
             else:
                 with BytesIO(msg.value()) as stream:
                     record = fastavro.schemaless_reader(stream, parsed_schema)
-                    print(record)
+                    self.controller_consumer.commit()
+                    break
 
     def run(self): 
         while True:
