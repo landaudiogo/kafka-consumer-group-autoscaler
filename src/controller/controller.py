@@ -1,3 +1,4 @@
+import importlib
 import time
 import json
 import copy
@@ -92,6 +93,9 @@ class Controller:
         configuration.host = f"https://{cluster_ip}"
         configuration.ssl_ca_cert = 'kubernetes-cluster/cluster.ca'
         self.kube_configuration = configuration
+        
+        self.value_deserializer = AvroDeserializer() 
+        self.value_serializer = AvroSerializer(DEControllerSchema)
 
 
     def get_last_monitor_record(self): 
@@ -154,32 +158,69 @@ class Controller:
         return body
 
     def change_consumers_state(self, delta: GroupManagement):
-        for consumer, cmessages in delta.batch.items():
-            for record in cmessages.to_record_list():
-                print("=> ", consumer.consumer_id+1, " <=")
-                print(record)
-                with BytesIO() as stream:
-                    parsed_schema = fastavro.parse_schema(DEControllerSchema)
-                    fastavro.schemaless_writer(
-                        stream, parsed_schema, record["payload"]
-                    )
-                    self.controller_producer.produce(
-                        "data-engineering-controller",
-                        value=stream.getvalue(),
-                        headers=record["headers"],
-                        partition=consumer.consumer_id+1
-                    )
+        self.send_batch(delta.batch)
         self.controller_producer.flush()
         while True:
             msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
             else:
-                with BytesIO(msg.value()) as stream:
-                    record = fastavro.schemaless_reader(stream, parsed_schema)
-                    self.controller_consumer.commit()
-                    break
+                record = self.value_deserializer(msg)
+                delta.prepare_batch(record)
+                self.controller_consumer.commit(msg)
+                break
+
+    def send_batch(self, batch): 
+        for consumer, cmessages in batch.items():
+            for record in cmessages.to_record_list():
+                avro_record = self.value_serializer(record["payload"])
+                self.controller_producer.produce(
+                    "data-engineering-controller",
+                    value=avro_record,
+                    headers=record["headers"],
+                    partition=consumer.consumer_id+1
+                )
+        self.controller_producer.flush()
+
 
     def run(self): 
         while True:
             self.state_machine.execute()
+
+
+class AvroDeserializer:
+
+
+    def __init__(self): 
+        self.__writer_schemas = {}
+
+    def __call__(self, msg) -> dict:
+        serializer = dict(msg.headers())["serializer"].decode()
+
+        writer_schema = self.__writer_schemas.get(serializer)
+        if writer_schema == None:
+            class_path = serializer.split('.')
+            module_path, class_name = '.'.join(class_path[:-1]), class_path[-1]
+            module = importlib.import_module(module_path)
+            writer_schema = getattr(module, class_name)
+            parsed_schema = fastavro.parse_schema(writer_schema)
+            self.__writer_schemas[serializer] = parsed_schema 
+
+        with BytesIO(msg.value()) as stream:
+            return fastavro.schemaless_reader(stream, writer_schema)
+
+
+class AvroSerializer:
+
+
+    def __init__(self, schema):
+        self.parsed_schema = fastavro.parse_schema(schema)
+
+    def __call__(self, record):
+        with BytesIO() as stream:
+            fastavro.schemaless_writer(
+                stream, 
+                self.parsed_schema, 
+                record
+            )
+            return stream.getvalue()

@@ -371,10 +371,10 @@ class ConsumerList(list):
             start = final - current
             stop = current - final
             for partition in start.partitions():
-                action = Start(final, partition)
+                action = StartCommand(final, partition)
                 gm.add_action(action)
             for partition in stop.partitions():
-                action = Stop(final, partition)
+                action = StopCommand(final, partition)
                 gm.add_action(action)
         return gm
 
@@ -385,7 +385,7 @@ class ConsumerList(list):
         return all_partitions
 
 
-class Action:
+class Command:
     def __init__(
         self, 
         consumer: DataConsumer, 
@@ -394,41 +394,86 @@ class Action:
         self.consumer = consumer
         self.partition = partition
 
+    def __eq__(self, other): 
+        if not isinstance(other, Command): 
+            return False
+        return (
+            (self.consumer, self.partition) == 
+            (other.consumer, other.partition)
+        )
+            
 
-class Stop(Action):
+class StopCommand(Command):
     pass
 
 
-class Start(Action): 
+class StartCommand(Command): 
     pass
 
 
-class PartitionActions:
-    """Track what kind of Actions that have to be performed for a partition.
+class Event:
+    def __init__(
+        self, 
+        consumer: DataConsumer, 
+        partition: TopicPartitionConsumer
+    ):
+        self.consumer = consumer
+        self.partition = partition
+
+
+class StopEvent(Event):
+    pass
+
+
+class StartEvent(Event):
+    pass
+
+
+class PartitionCommands:
+    """Track what kind of Commands that have to be performed for a partition.
 
     The 2 attributes define the actions the partition has to go through. 
     """
 
-    def __init__(self, partition: TopicPartitionConsumer, action: Action = None): 
+    def __init__(self, partition: TopicPartitionConsumer, action: Command = None): 
         self.partition = partition
         self.start = None
         self.stop = None
         if action != None:
-            if action.__class__ == Stop:
+            if action.__class__ == StopCommand:
                 self.stop = action
-            elif action.__class__ == Start:
+            elif action.__class__ == StartCommand:
                 self.start = action
 
-    def add_action(self, action: Action): 
+    def __eq__(self, other): 
+        if not isinstance(other, PartitionCommands): 
+            return False
+        return (
+            (self.partition, self.start, self.stop) == 
+            (other.partition, other.start, other.stop)
+        )
+
+    def add_action(self, action: Command): 
         if not action.partition == self.partition: 
             raise Exception()
-        if action.__class__ == Start:
+        if action.__class__ == StartCommand:
             self.start = action
-        elif action.__class__ == Stop:
+        elif action.__class__ == StopCommand:
             self.stop = action
         else:
             raise Exception()
 
+    def remove_action(self, action: Command):
+        if not action.partition == self.partition: 
+            raise Exception()
+
+        if action.__class__ == StartCommand:
+            self.start = None
+        elif action.__class__ == StopCommand:
+            self.stop = None
+
+    def empty():
+        return (self.start, self.stop) == (None, None)
 
 class GroupManagement:
 
@@ -439,20 +484,39 @@ class GroupManagement:
         self.consumers_create = set()
         self.consumers_remove = set()
 
-    def add_action(self, action: Action): 
+    def add_action(self, action: Command): 
         p_actions = self.map_partition_actions.get(action.partition)
         if p_actions == None:
-            p_actions = PartitionActions(action.partition)
+            p_actions = PartitionCommands(action.partition)
             self.map_partition_actions[action.partition] = p_actions
 
-        if action.__class__ == Stop:
+        if action.__class__ == StopCommand:
             if p_actions.start != None:
                 self.batch.remove_action(action)
             self.batch.add_action(action)
-        elif action.__class__ == Start: 
+        elif action.__class__ == StartCommand: 
             if p_actions.stop == None:
                 self.batch.add_action(action)
         p_actions.add_action(action)
+
+    def remove_action(self, event: Event):
+        p_actions = self.map_partition_actions.get(event.partition)
+        if p_actions == None:
+            raise Exception()
+
+        if isinstance(event, StopEvent):
+            p_actions.remove_action(event)
+            if p_actions.start != None: 
+                self.batch.add_action(p_actions.start)
+        elif isinstance(event, StartEvent):
+            p_actions.remove_action(event)
+
+        if p_actions.empty(): 
+            self.map_partition_actions.pop(event.partition)
+
+    def prepare_batch(self, event: Event):
+        for topic_partitions in event:
+            print(topic_partitions["topic_name"], topic_partitions["partitions"])
 
     def add_consumers_remove(self, consumer: DataConsumer): 
         self.consumers_remove.add(consumer)
@@ -461,7 +525,7 @@ class GroupManagement:
         self.consumers_create.add(consumer)
 
     def pop_consumers_remove(self, consumer: DataConsumer): 
-        self.consumers_remove.remove()
+        self.consumers_remove.remove(consumer)
 
     def pop_consumers_create(self, consumer: DataConsumer):
         self.consumers_create.remove(consumer)
@@ -473,12 +537,12 @@ class ConsumerMessageBatch(dict):
     once.
 
     The key represents a single instance of type DataConsumer, and the value is an instance of type
-    ConsumerMessage, which can contain messages of type Start or Stop Consuming
+    ConsumerMessage, which can contain messages of type StartCommand or StopCommand Consuming
     Commands for the Consumer.
     """
 
 
-    def add_action(self, action: Action): 
+    def add_action(self, action: Command): 
         cmsg = self.get(action.consumer)
         if cmsg == None: 
             cmsg = ConsumerMessage(action.consumer)
@@ -506,27 +570,27 @@ class ConsumerMessage:
         )
 
 
-    def add_action(self, action: Action): 
-        if action.__class__ == Start: 
+    def add_action(self, action: Command): 
+        if action.__class__ == StartCommand: 
             topic = self.start.get(action.partition.topic)
             if topic == None:
                 topic = TopicConsumer(action.partition.topic)
                 self.start[action.partition.topic] = topic
             topic.add_partition(action.partition)
-        elif action.__class__ == Stop: 
+        elif action.__class__ == StopCommand: 
             topic = self.stop.get(action.partition.topic)
             if topic == None:
                 topic = TopicConsumer(action.partition.topic)
                 self.stop[action.partition.topic] = topic
             self.stop[action.partition.topic].add_partition(action.partition)
 
-    def remove_action(self, action: Action): 
-        if action.__class__ == Start: 
+    def remove_action(self, action: Command): 
+        if action.__class__ == StartCommand: 
             topic = self.start.get(action.partition.topic)
             if topic == None:
                 return 
             topic.remove_partition(action.partition)
-        elif action.__class__ == Stop: 
+        elif action.__class__ == StopCommand: 
             topic = self.stop.get(action.partition.topic)
             if topic == None:
                 return 
