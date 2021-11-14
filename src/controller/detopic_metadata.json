@@ -7,5 +7,14 @@
       "class_name": "DeliveryEventsV6Topic"
     },
     "ignore_events": []
+  },
+  "delivery_events_v7_topic": {
+    "topic_name": "delivery_events_v7_topic",
+    "bq_table": "delivery_events_temp",
+    "topic_class": {
+      "module_path": "contracts.delivery.delivery_events_v7",
+      "class_name": "DeliveryEventsV7Topic"
+    },
+    "ignore_events": []
   }
 }

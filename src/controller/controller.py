@@ -19,7 +19,7 @@ from config import (
 )
 from dstructures import (
     TopicPartitionConsumer, ConsumerList, DataConsumer, GroupManagement,
-    StopEvent, StartEvent
+    StopEvent, StartEvent, ConsumerMessageBatch
 )
 from state_machine import (
     StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
@@ -172,13 +172,16 @@ class Controller:
                 )
                 delta.prepare_batch(event_type, record)
                 self.send_batch(delta.batch)
+                delta.batch = ConsumerMessageBatch()
                 self.controller_consumer.commit(msg)
 
     def send_batch(self, batch): 
         for consumer, cmessages in batch.items():
+            print("====== Consumer =>", consumer)
             for record in cmessages.to_record_list():
                 if record["payload"] == []:
                     continue
+                print(record)
                 avro_record = self.value_serializer(record["payload"])
                 self.controller_producer.produce(
                     "data-engineering-controller",
