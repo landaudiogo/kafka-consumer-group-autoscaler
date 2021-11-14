@@ -121,6 +121,8 @@ class TopicConsumer:
         return f'{d}'
 
     def to_record(self): 
+        if len(self.partitions) == 0:
+            return None
         return {
             "topic_name": self.topic_name,
             "topic_class": self.topic_class, 
@@ -181,6 +183,7 @@ class TopicDictConsumer(dict):
             "payload": [
                 value.to_record() 
                 for value in self.values()
+                    if value.to_record() != None
             ]
         }
 
@@ -469,10 +472,10 @@ class PartitionCommands:
 
         if action.__class__ == StartCommand:
             self.start = None
-        elif action.__class__ == StopCommand:
+        elif action.__class__ == StopComand:
             self.stop = None
 
-    def empty():
+    def empty(self):
         return (self.start, self.stop) == (None, None)
 
 class GroupManagement:
@@ -499,24 +502,34 @@ class GroupManagement:
                 self.batch.add_action(action)
         p_actions.add_action(action)
 
-    def remove_action(self, event: Event):
-        p_actions = self.map_partition_actions.get(event.partition)
+    def remove_action(self, event_type, partition: TopicPartitionConsumer):
+        p_actions = self.map_partition_actions.get(partition)
         if p_actions == None:
             raise Exception()
 
-        if isinstance(event, StopEvent):
-            p_actions.remove_action(event)
+        if event_type == StopEvent:
+            event_type = StopCommand
+            consumer = p_actions.stop.consumer
             if p_actions.start != None: 
                 self.batch.add_action(p_actions.start)
-        elif isinstance(event, StartEvent):
-            p_actions.remove_action(event)
+        elif event_type == StartEvent:
+            event_type = StartCommand
+            consumer = p_actions.start.consumer
+        p_actions.remove_action(event_type(consumer, partition))
+        self.batch.remove_action(event_type(consumer, partition))
 
         if p_actions.empty(): 
-            self.map_partition_actions.pop(event.partition)
+            self.map_partition_actions.pop(partition)
 
-    def prepare_batch(self, event: Event):
-        for topic_partitions in event:
-            print(topic_partitions["topic_name"], topic_partitions["partitions"])
+    def prepare_batch(self, event_type: Type[Event], record):
+        for topic_partitions in record:
+            for partition in topic_partitions["partitions"]:
+                self.remove_action(
+                    event_type,
+                    TopicPartitionConsumer(
+                        topic_partitions["topic_name"], partition
+                    ),
+                )
 
     def add_consumers_remove(self, consumer: DataConsumer): 
         self.consumers_remove.add(consumer)
@@ -529,6 +542,9 @@ class GroupManagement:
 
     def pop_consumers_create(self, consumer: DataConsumer):
         self.consumers_create.remove(consumer)
+
+    def empty(self): 
+        return len(self.map_partition_actions) == 0
 
 
 
@@ -548,6 +564,13 @@ class ConsumerMessageBatch(dict):
             cmsg = ConsumerMessage(action.consumer)
             self[action.consumer] = cmsg
         cmsg.add_action(action)
+
+    def remove_action(self, action: Command):
+        cmsg = self.get(action.consumer)
+        if cmsg == None:
+            raise Exception()
+        cmsg.remove_action(action)
+
 
 
 class ConsumerMessage:

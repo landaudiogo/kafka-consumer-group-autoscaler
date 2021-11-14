@@ -18,7 +18,8 @@ from config import (
     CONSUMER_CAPACITY, ADMIN_CONFIG, CONTROLLER_PRODUCER_CONFIG
 )
 from dstructures import (
-    TopicPartitionConsumer, ConsumerList, DataConsumer, GroupManagement
+    TopicPartitionConsumer, ConsumerList, DataConsumer, GroupManagement,
+    StopEvent, StartEvent
 )
 from state_machine import (
     StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
@@ -160,19 +161,26 @@ class Controller:
     def change_consumers_state(self, delta: GroupManagement):
         self.send_batch(delta.batch)
         self.controller_producer.flush()
-        while True:
+        while not delta.empty():
             msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
             else:
                 record = self.value_deserializer(msg)
-                delta.prepare_batch(record)
+                event_type = (
+                    StartEvent
+                    if dict(msg.headers())["event_type"].decode() == "StartConsumingEvent"
+                    else StopEvent
+                )
+                delta.prepare_batch(event_type, record)
+                self.send_batch(delta.batch)
                 self.controller_consumer.commit(msg)
-                break
 
     def send_batch(self, batch): 
         for consumer, cmessages in batch.items():
             for record in cmessages.to_record_list():
+                if record["payload"] == []:
+                    continue
                 avro_record = self.value_serializer(record["payload"])
                 self.controller_producer.produce(
                     "data-engineering-controller",
@@ -181,6 +189,7 @@ class Controller:
                     partition=consumer.consumer_id+1
                 )
         self.controller_producer.flush()
+        
 
 
     def run(self): 
