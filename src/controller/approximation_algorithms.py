@@ -151,17 +151,19 @@ class ModifiedWorstFit(WorstFit):
         for c in clist: 
             if c == None: 
                 continue
-            cpartitions = c.partitions().to_list().sort(reverse=True)
-            for i in range(len(cpartitions), -1, -1):
+            cpartitions = sorted(c.partitions().to_list(), reverse=True)
+            for i in range(len(cpartitions)-1, -1, -1):
                 tp = cpartitions.pop(i)
-                res = self.assign_existing(tp, c)
+                res = self.assign_existing(tp)
                 if res == False:
+                    cpartitions.append(tp)
                     break
             for i, tp in enumerate(cpartitions):
-                res = self.assign_current_consumer(tp)
+                res = self.assign_current_consumer(tp, c)
                 if res == False: 
                     break
-            unassigned.extend(cpartitions[i:])
+            if i <= len(cpartitions)-1:
+                unassigned.extend(cpartitions[i:])
 
         unassigned = sorted(unassigned, reverse=True)
         for tp in unassigned: 
@@ -198,7 +200,7 @@ class ModifiedWorstFit(WorstFit):
             self.next_assignment.create_bin(idx)
             c = self.next_assignment[idx]
         if c.fits(tp):
-            self.next_assingment.assign_partition_consumer(idx, tp)
+            self.next_assignment.assign_partition_consumer(idx, tp)
             return True
         return False
 

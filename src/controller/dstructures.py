@@ -106,7 +106,7 @@ class TopicConsumer:
 
     def remove_partition(self, tp: TopicPartitionConsumer): 
         if self.partitions.get(tp) == None: 
-            return 
+            raise Exception() 
         tp = self.partitions.pop(tp)
         self.combined_speed -= tp.speed
 
@@ -121,8 +121,6 @@ class TopicConsumer:
         return f'{d}'
 
     def to_record(self): 
-        if len(self.partitions) == 0:
-            return None
         return {
             "topic_name": self.topic_name,
             "topic_class": self.topic_class, 
@@ -472,7 +470,7 @@ class PartitionCommands:
 
         if action.__class__ == StartCommand:
             self.start = None
-        elif action.__class__ == StopComand:
+        elif action.__class__ == StopCommand:
             self.stop = None
 
     def empty(self):
@@ -613,11 +611,15 @@ class ConsumerMessage:
             if topic == None:
                 return 
             topic.remove_partition(action.partition)
+            if len(topic.partitions) == 0: 
+                self.start.pop(action.partition.topic)
         elif action.__class__ == StopCommand: 
             topic = self.stop.get(action.partition.topic)
             if topic == None:
                 return 
             topic.remove_partition(action.partition)
+            if len(topic.partitions) == 0: 
+                self.stop.pop(action.partition.topic)
 
     def to_record_list(self): 
         l = []

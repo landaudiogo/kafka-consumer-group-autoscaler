@@ -152,6 +152,7 @@ class StateGroupManagement(State):
         # print(list(res.batch.values())[0].to_record_list())
         self.controller.create_consumers(delta.consumers_create)
         self.controller.change_consumers_state(delta)
+        self.controller.consumer_list = self.controller.next_assignment
         self.FINAL_GROUP_STATE = True
 
 
