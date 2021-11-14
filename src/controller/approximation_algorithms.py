@@ -28,6 +28,9 @@ class NextFit(ApproximationAlgorithm):
         return super().run(consumer_list.partitions(), unassigned)
 
     def assign(self, tp: TopicPartitionConsumer): 
+        print(tp, self.next_assingment[-1])
+        print(self.next_assignment[-1].fits(tp))
+        print(self.next_assignment[-1].combined_speed)
         if (
             (not self.next_assignment[-1].fits(tp)) 
             and (self.next_assignment[-1].combined_speed != 0)
@@ -123,7 +126,7 @@ class BestFit(ApproximationAlgorithm):
         bestfit = None
         for c in self.next_assignment: 
             if c.fits(tp):
-                if (bestfit == None) or (c.combined_speed < bestfit.combined_speed): 
+                if (bestfit == None) or (c.combined_speed > bestfit.combined_speed): 
                     bestfit = c
         idx = (
             self.next_assignment.create_bin() if bestfit == None 
@@ -153,17 +156,18 @@ class ModifiedWorstFit(WorstFit):
                 continue
             cpartitions = sorted(c.partitions().to_list(), reverse=True)
             for i in range(len(cpartitions)-1, -1, -1):
-                tp = cpartitions.pop(i)
+                tp = cpartitions[i]
                 res = self.assign_existing(tp)
                 if res == False:
-                    cpartitions.append(tp)
                     break
-            for i, tp in enumerate(cpartitions):
-                res = self.assign_current_consumer(tp, c)
-                if res == False: 
-                    break
-            if i <= len(cpartitions)-1:
-                unassigned.extend(cpartitions[i:])
+                cpartitions.pop(i)
+            if len(cpartitions):
+                for j, tp in enumerate(cpartitions):
+                    res = self.assign_current_consumer(tp, c)
+                    if res == False: 
+                        break
+                if (j <= len(cpartitions)-1) and (res == False):
+                    unassigned.extend(cpartitions[j:])
 
         unassigned = sorted(unassigned, reverse=True)
         for tp in unassigned: 
@@ -179,7 +183,7 @@ class ModifiedWorstFit(WorstFit):
             if c.fits(tp): 
                 if (
                     (worstfit == None)
-                    or (c.combined_speed > worstfit.combined_speed)
+                    or (c.combined_speed < worstfit.combined_speed)
                 ):
                     worstfit = c
         if worstfit != None: 

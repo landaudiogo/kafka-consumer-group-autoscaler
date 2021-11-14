@@ -59,10 +59,12 @@ class Controller:
         s1 = StateSentinel(self)
         s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
         s3 = StateGroupManagement(self)
+        s4 = State(self)
         states = [
             ("s1", s1), 
             ("s2", s2), 
             ("s3", s3),
+            ("s4", s4),
         ]
         transitions = [
             ("s1", "s2", s1.time_up),
@@ -146,6 +148,9 @@ class Controller:
             NewPartitions("data-engineering-controller", total_partitions)
         ]).get("data-engineering-controller")
         if future.result() == None: 
+            while(self.get_num_partitions() != total_partitions):
+                time.sleep(0.01)
+            time.sleep(5)
             print(f"data-engineering-controller has now {total_partitions} partitions")
 
     def change_template_deployment(self, deployment_id): 
@@ -158,6 +163,7 @@ class Controller:
 
     def change_consumers_state(self, delta: GroupManagement):
         self.send_batch(delta.batch)
+        delta.batch = ConsumerMessageBatch()
         self.controller_producer.flush()
         while not delta.empty():
             msg = self.controller_consumer.poll(timeout=1.0)
@@ -165,6 +171,7 @@ class Controller:
                 continue
             else:
                 record = self.value_deserializer(msg)
+                print(record)
                 event_type = (
                     StartEvent
                     if dict(msg.headers())["event_type"].decode() == "StartConsumingEvent"
@@ -181,7 +188,7 @@ class Controller:
             for record in cmessages.to_record_list():
                 if record["payload"] == []:
                     continue
-                print(record)
+                print(consumer.consumer_id+1, record)
                 avro_record = self.value_serializer(record["payload"])
                 self.controller_producer.produce(
                     "data-engineering-controller",

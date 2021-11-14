@@ -239,10 +239,12 @@ class DataConsumer:
         self.combined_speed += topic.combined_speed
 
     def fits(self, tp: TopicPartitionConsumer): 
-        return (
-            True if (self.combined_speed + tp.speed < ALGO_CAPACITY) 
-            else False
-        )
+        if (
+            ((self.combined_speed == 0) and (len(self.partitions()) == 0)) 
+            or (self.combined_speed + tp.speed < ALGO_CAPACITY)
+        ):
+            return True
+        return False
 
     def __repr__(self): 
         return f'{self.consumer_id}'
@@ -493,7 +495,7 @@ class GroupManagement:
 
         if action.__class__ == StopCommand:
             if p_actions.start != None:
-                self.batch.remove_action(action)
+                self.batch.remove_action(p_actions.start)
             self.batch.add_action(action)
         elif action.__class__ == StartCommand: 
             if p_actions.stop == None:
@@ -514,7 +516,6 @@ class GroupManagement:
             event_type = StartCommand
             consumer = p_actions.start.consumer
         p_actions.remove_action(event_type(consumer, partition))
-        self.batch.remove_action(event_type(consumer, partition))
 
         if p_actions.empty(): 
             self.map_partition_actions.pop(partition)
@@ -603,7 +604,7 @@ class ConsumerMessage:
             if topic == None:
                 topic = TopicConsumer(action.partition.topic)
                 self.stop[action.partition.topic] = topic
-            self.stop[action.partition.topic].add_partition(action.partition)
+            topic.add_partition(action.partition)
 
     def remove_action(self, action: Command): 
         if action.__class__ == StartCommand: 
