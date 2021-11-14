@@ -14,7 +14,7 @@ from confluent_kafka import (
 from utils import (
     eprint, Row, RowList, BatchList, Batch
 )
-from config import BATCH_BYTES, METADATA_CONF, METADATA_PRODUCER
+from config import BATCH_BYTES, METADATA_CONF, METADATA_PRODUCER, POD_ID
 from de_avro import DEControllerSchema
 
 
@@ -114,7 +114,7 @@ class DEConsumer(Consumer):
     def __enter__(self):
         self.metadata_consumer = DEMetadataConsumer(
             {**METADATA_CONF, "value.deserializer": AvroDeserializer()}, 
-            [TopicPartition(topic="data-engineering-controller", partition=1)],
+            [TopicPartition(topic="data-engineering-controller", partition=POD_ID)],
             ChangeStateEvent
         )
         return self

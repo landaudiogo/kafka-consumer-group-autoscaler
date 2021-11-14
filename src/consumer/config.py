@@ -7,7 +7,7 @@ import re
 DEPLOYMENT_NAME = open("/etc/podinfo/pod_name", "r").read().replace("\n", "")
 POD_ID = None
 if DEPLOYMENT_NAME:
-    POD_ID = re.search(r"^\w+-\w+-(\w+).*$", DEPLOYMENT_NAME).group(1)
+    POD_ID = int(re.search(r"^\w+-\w+-(\w+).*$", DEPLOYMENT_NAME).group(1))
 else:
     POD_ID = 1
 print(POD_ID)
