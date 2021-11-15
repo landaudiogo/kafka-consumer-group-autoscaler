@@ -150,7 +150,8 @@ class ModifiedWorstFit(WorstFit):
 
     def run(self, consumer_list, unassigned): 
         self.next_assignment = ConsumerList()
-        clist = sorted(consumer_list, reverse=True)
+        clist = [consumer for consumer in consumer_list if consumer != None]
+        clist = sorted(clist, reverse=True)
         for c in clist: 
             if c == None: 
                 continue

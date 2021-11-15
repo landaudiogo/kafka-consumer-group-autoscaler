@@ -139,6 +139,24 @@ class Controller:
                 deployments = kube_client.create_namespaced_deployment("data-engineering-dev", body)
                 print(f"created consumer with id {deployment_id}")
 
+    def delete_consumers(self, consumers: List[DataConsumer]):
+        if not len(consumers):
+            return 
+        with ApiClient(self.kube_configuration) as api_client:
+            kube_client = AppsV1Api(api_client)
+            existing_deployments = [
+                dep.metadata.name
+                for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
+            ]
+            
+            for consumer in consumers:
+                deployment_id = f'{self.template_deployment["metadata"]["name"]}-{consumer.consumer_id+1}'
+                if deployment_id in existing_deployments:
+                    deployments = kube_client.delete_namespaced_deployment(
+                        deployment_id, "data-engineering-dev"
+                    )
+                    print(f"removed consumer with id {deployment_id}")
+
     def get_num_partitions(self, topic="data-engineering-controller"):
         d = self.de_controller_metadata.list_topics(topic)
         return len(d.topics[topic].partitions)

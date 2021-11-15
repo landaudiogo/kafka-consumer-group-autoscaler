@@ -92,7 +92,6 @@ class StateSentinel(State):
 
     def execute(self): 
         partition_speeds = self.controller.get_last_monitor_record()
-        # print(partition_speeds)
         for topic_name, p_speeds in partition_speeds.items(): 
             for p_str, speed  in p_speeds.items():
                 speed = min(CONSUMER_CAPACITY, speed)
@@ -162,10 +161,10 @@ class StateGroupManagement(State):
 
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
-        # print(list(res.batch.values())[0].to_record_list())
         self.controller.create_consumers(delta.consumers_create)
         self.controller.change_consumers_state(delta)
         self.controller.consumer_list = self.controller.next_assignment
+        self.controller.delete_consumers(delta.consumers_remove)
         self.controller.consumer_list.pretty_print()
         self.FINAL_GROUP_STATE = True
 
