@@ -65,8 +65,8 @@ class PartitionSet(dict):
         return PartitionSet([tp.copy() for tp in self])
 
     def __repr__(self):
-        partition_set = {key for key in self}
-        return f'{partition_set}'
+        partition_list = [key for key in self]
+        return f'{partition_list}'
 
     def to_list(self): 
         return [tp for tp in self]
@@ -241,7 +241,7 @@ class DataConsumer:
     def fits(self, tp: TopicPartitionConsumer): 
         if (
             ((self.combined_speed == 0) and (len(self.partitions()) == 0)) 
-            or (self.combined_speed + tp.speed < ALGO_CAPACITY)
+            or (self.combined_speed + tp.speed <= ALGO_CAPACITY)
         ):
             return True
         return False
@@ -258,6 +258,11 @@ class DataConsumer:
 
     def partitions(self): 
         return self.assignment.partitions()
+
+    def pretty_print(self): 
+        for topic in self.assignment.values(): 
+            print("-", topic.topic_name, topic.partitions)
+        print("-", self.combined_speed)
 
     def __sub__(self, other):
         if self.consumer_id != other.consumer_id: 
@@ -387,6 +392,11 @@ class ConsumerList(list):
             all_partitions = all_partitions | c.partitions()
         return all_partitions
 
+    def pretty_print(self): 
+        for consumer in self:
+            if consumer != None:
+                print("{", consumer, "}")
+                consumer.pretty_print()
 
 class Command:
     def __init__(

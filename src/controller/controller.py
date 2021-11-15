@@ -171,7 +171,9 @@ class Controller:
                 continue
             else:
                 record = self.value_deserializer(msg)
-                print(record)
+                print(dict(msg.headers())["event_type"].decode())
+                for topic in record:
+                    print("-", topic["topic_name"], topic["partitions"])
                 event_type = (
                     StartEvent
                     if dict(msg.headers())["event_type"].decode() == "StartConsumingEvent"
@@ -184,11 +186,13 @@ class Controller:
 
     def send_batch(self, batch): 
         for consumer, cmessages in batch.items():
-            print("====== Consumer =>", consumer)
+            print("Consumer =>", consumer)
             for record in cmessages.to_record_list():
                 if record["payload"] == []:
                     continue
-                print(consumer.consumer_id+1, record)
+                print(record["headers"]["event_type"])
+                for topic in record["payload"]:
+                    print("-", topic["topic_name"], topic["partitions"])
                 avro_record = self.value_serializer(record["payload"])
                 self.controller_producer.produce(
                     "data-engineering-controller",

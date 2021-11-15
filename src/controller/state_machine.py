@@ -30,7 +30,7 @@ class State:
         self.transitions = []
 
     def entry(self):
-        print("==== ", self.__class__.__name__, ' ====')
+        print(self)
         self.start_time = time.time()
 
     def elapsed_time(self): 
@@ -57,10 +57,16 @@ class State:
                 return dest
         return None
 
+    def __repr__(self): 
+        return f'=== {self.__class__.__name__} ==='
 
 
 class StateSentinel(State): 
 
+
+    def __init__(self, *args, **kwargs):
+        self.ITERATION = 0
+        super().__init__(*args, **kwargs)
 
     def time_up(self):
         return self.elapsed_time() > MAX_TIME_S1
@@ -80,6 +86,10 @@ class StateSentinel(State):
         super().entry()
         self.controller.unassigned_partitions = []
 
+    def exit(self):
+        super().exit()
+        self.ITERATION += 1
+
     def execute(self): 
         partition_speeds = self.controller.get_last_monitor_record()
         # print(partition_speeds)
@@ -95,6 +105,9 @@ class StateSentinel(State):
                     self.controller.unassigned_partitions.append(tp)
                 else:
                     consumer.update_partition_speed(tp, speed)
+
+    def __repr__(self): 
+        return f'=== StateSentinel {self.ITERATION} ==='
 
 
 class StateReassignAlgorithm(State): 
@@ -153,6 +166,7 @@ class StateGroupManagement(State):
         self.controller.create_consumers(delta.consumers_create)
         self.controller.change_consumers_state(delta)
         self.controller.consumer_list = self.controller.next_assignment
+        self.controller.consumer_list.pretty_print()
         self.FINAL_GROUP_STATE = True
 
 
