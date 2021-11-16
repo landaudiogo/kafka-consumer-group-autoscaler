@@ -119,17 +119,20 @@ class DEConsumer(Consumer):
             json.dump(self.current_assignment.to_record(), f)
 
     def load_persisted_metadata(self): 
-        with open("/usr/src/data/consumer_metadata.json", "r") as f:
-            assignment_record = json.load(f)
-            assign_partitions = []
-            for topic in assignment_record:
-                self.current_assignment[topic["topic_name"]] = DETopic(**topic)
-                for p in topic["partitions"]: 
-                    assign_partitions.append(TopicPartition(
-                        topic=topic["topic_name"], partition=p
-                    ))
-            self.assign(assign_partitions)
-            self.current_assignment.pretty_print()
+        try:
+            with open("/usr/src/data/consumer_metadata.json", "r") as f:
+                assignment_record = json.load(f)
+        except FileNotFoundError as e:
+            assignment_record = []
+        assign_partitions = []
+        for topic in assignment_record:
+            self.current_assignment[topic["topic_name"]] = DETopic(**topic)
+            for p in topic["partitions"]: 
+                assign_partitions.append(TopicPartition(
+                    topic=topic["topic_name"], partition=p
+                ))
+        self.assign(assign_partitions)
+        self.current_assignment.pretty_print()
 
 
     def __enter__(self):

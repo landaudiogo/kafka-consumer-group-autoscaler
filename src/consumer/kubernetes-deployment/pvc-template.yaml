@@ -2,6 +2,7 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: de-consumer-1-volume
+  namespace: data-engineering-dev
 spec:
   accessModes:
   - ReadWriteOnce
