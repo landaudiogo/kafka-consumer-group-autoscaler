@@ -129,6 +129,12 @@ class TopicConsumer:
             "ignore_events": [],
         }
 
+    def to_json(self): 
+        return {
+            "topic_name": self.topic_name,
+            "partitions": [p.partition for p in self.partitions.to_list()]
+        }
+
 
 class TopicDictConsumer(dict):
 
@@ -269,6 +275,21 @@ class DataConsumer:
             raise Exception()
         return DataConsumer(self.consumer_id, assignment=self.assignment-other.assignment)
 
+    def to_json(self): 
+        return [topic.to_json() for topic in self.assignment.values()]
+
+    def from_json(self, assignment):
+        for topic in assignment:
+            self.assignment[topic["topic_name"]] = TopicConsumer(
+                topic["topic_name"], 
+                [
+                    TopicPartitionConsumer(topic["topic_name"], p)
+                    for p in topic["partitions"]
+                ]
+            )
+        return self
+
+
 
 class ConsumerList(list):
     """Mapping to keep track of the consumers that are in use.
@@ -279,7 +300,6 @@ class ConsumerList(list):
 
 
     def __init__(self, clist: Optional[List[DataConsumer]] = None): 
-        super().__init__()
         if clist == None: 
             clist = []
         self.available_indices = []
@@ -397,6 +417,27 @@ class ConsumerList(list):
             if consumer != None:
                 print("{", consumer, "}")
                 consumer.pretty_print()
+
+    def to_json(self): 
+        return [
+            consumer.to_json() if consumer != None else None
+            for consumer in self
+        ]
+
+    def from_json(self, clist): 
+        clist = [
+            DataConsumer(i).from_json(c_assignment) 
+            for i, c_assignment in enumerate(clist)
+        ]
+        print(clist)
+        for i, c in enumerate(clist):
+            if c == None: 
+                self.available_indices.append(i)
+                continue
+            for tp in c.partitions():
+                self.map_partition_consumer[tp] = c
+        super().__init__(clist)
+
 
 class Command:
     def __init__(

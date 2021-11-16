@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: de-consumer
+  name: de-consumer-1
   namespace: data-engineering-dev
   labels: 
     consumerGroup: de-consumer-group
@@ -32,7 +32,7 @@ spec:
       - name: landauhubkey
       containers:
         - name: consumer-capacity
-          image: thehuub/consumer-capacity:v1.2.3
+          image: thehuub/consumer-capacity:v1.2.4
           imagePullPolicy: Always
           resources:
             requests: 
@@ -55,6 +55,8 @@ spec:
           volumeMounts:
             - name: podinfo
               mountPath: /etc/podinfo
+            - name: podpvc
+              mountPath: /usr/src/data
       volumes:
         - name: podinfo
           downwardAPI:
@@ -62,4 +64,7 @@ spec:
               - path: "pod_name"
                 fieldRef:
                   fieldPath: metadata.name
+        - name: podpvc
+          persistentVolumeClaim:
+            claimName: de-consumer-1-volume
 

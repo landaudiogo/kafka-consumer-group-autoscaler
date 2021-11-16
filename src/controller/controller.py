@@ -10,7 +10,7 @@ from typing import Tuple, List
 from confluent_kafka import Consumer, TopicPartition, Producer
 from confluent_kafka.admin import AdminClient, ConfigResource, NewPartitions
 from kubernetes.client import (
-    Configuration, AppsV1Api, ApiClient
+    Configuration, AppsV1Api, ApiClient, CoreV1Api
 )
 
 from config import (
@@ -79,16 +79,19 @@ class Controller:
         self.state_machine.set_initial("s1")
 
         self.unassigned_partitions = []
-        self.consumer_list = ConsumerList()
+        self.consumer_list = None
+        self.load_consumer_state()
         self.next_assignment = None
 
         configuration = Configuration()
         with open('kubernetes-cluster/token', 'r') as f_token, \
              open('kubernetes-cluster/cluster-ip', 'r') as f_ip, \
-             open('template-deployment.yml', 'r') as f_td:
+             open('template-deployment.yml', 'r') as f_td, \
+             open('template-pvc.yml', 'r') as f_tpvc:
             token = f_token.read().replace('\n', '')
             cluster_ip = f_ip.read().replace('\n', '')
             self.template_deployment = yaml.safe_load(f_td)
+            self.template_pvc = yaml.safe_load(f_tpvc)
         configuration.api_key["authorization"] = token 
         configuration.api_key_prefix["authorization"] = "Bearer"
         configuration.host = f"https://{cluster_ip}"
@@ -122,21 +125,30 @@ class Controller:
         if not len(consumers):
             return 
         with ApiClient(self.kube_configuration) as api_client:
+            core_v1_client = CoreV1Api(api_client)
             kube_client = AppsV1Api(api_client)
             existing_deployments = [
                 dep.metadata.name
                 for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
+            ]
+            existing_pvc = [
+                pvc.metadata.name 
+                for pvc in core_v1_client.list_namespaced_persistent_volume_claim("data-engineering-dev").items
             ]
             
             if (len(self.next_assignment)+1) > self.get_num_partitions():
                 self.create_partitions(len(self.next_assignment) + 1)
 
             for consumer in consumers:
-                deployment_id = f'{self.template_deployment["metadata"]["name"]}-{consumer.consumer_id+1}'
+                deployment_id = f'de-consumer-{consumer.consumer_id+1}'
+                pvc_id = f'de-consumer-{consumer.consumer_id+1}-volume'
                 if deployment_id in existing_deployments:
                     continue
-                body = self.change_template_deployment(deployment_id)
-                deployments = kube_client.create_namespaced_deployment("data-engineering-dev", body)
+                if pvc_id not in existing_pvc:
+                    pvc = self.change_template_pvc(pvc_id)
+                    core_v1_client.create_namespaced_persistent_volume_claim("data-engineering-dev", pvc)
+                dep = self.change_template_deployment(deployment_id)
+                kube_client.create_namespaced_deployment("data-engineering-dev", dep)
                 print(f"created consumer with id {deployment_id}")
 
     def delete_consumers(self, consumers: List[DataConsumer]):
@@ -150,7 +162,7 @@ class Controller:
             ]
             
             for consumer in consumers:
-                deployment_id = f'{self.template_deployment["metadata"]["name"]}-{consumer.consumer_id+1}'
+                deployment_id = f'de-consumer-{consumer.consumer_id+1}'
                 if deployment_id in existing_deployments:
                     deployments = kube_client.delete_namespaced_deployment(
                         deployment_id, "data-engineering-dev"
@@ -191,6 +203,12 @@ class Controller:
         body["metadata"]["labels"]["app"] = deployment_id
         body["spec"]["selector"]["matchLabels"]["app"] = deployment_id
         body["spec"]["template"]["metadata"]["labels"]["app"] = deployment_id
+        body["spec"]["template"]["spec"]["volumes"][1]["persistentVolumeClaim"]["claimName"] = f"{deployment_id}-volume"
+        return body
+
+    def change_template_pvc(self, pvc_id): 
+        body = copy.deepcopy(self.template_pvc)
+        body["metadata"]["name"] = pvc_id
         return body
 
     def change_consumers_state(self, delta: GroupManagement):
@@ -216,6 +234,21 @@ class Controller:
                 delta.batch = ConsumerMessageBatch()
                 self.controller_consumer.commit(msg)
 
+    def persist_consumer_state(self): 
+        with open("/usr/src/data/consumer_group_state.json", "w") as f:
+            json.dump(self.consumer_list.to_json(), f)
+
+    def load_consumer_state(self): 
+        try: 
+            with open("/usr/src/data/consumer_group_state.json", "r") as f: 
+                clist = json.load(f)
+        except FileNotFoundError as e:
+            clist = []
+        current = ConsumerList()
+        current.from_json(clist)
+        self.consumer_list = current
+        self.consumer_list.pretty_print()
+
     def send_batch(self, batch): 
         for consumer, cmessages in batch.items():
             print("Consumer =>", consumer)
@@ -233,8 +266,6 @@ class Controller:
                     partition=consumer.consumer_id+1
                 )
         self.controller_producer.flush()
-        
-
 
     def run(self): 
         while True:

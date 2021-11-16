@@ -166,6 +166,7 @@ class StateGroupManagement(State):
         self.controller.change_consumers_state(delta)
         self.controller.consumer_list = self.controller.next_assignment
         self.controller.delete_consumers(delta.consumers_remove)
+        self.controller.persist_consumer_state()
         self.controller.consumer_list.pretty_print()
         self.FINAL_GROUP_STATE = True
 

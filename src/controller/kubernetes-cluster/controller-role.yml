@@ -7,3 +7,6 @@ rules:
 - apiGroups: ["extensions", "apps"]
   resources: ["deployments", "deployments/status"]
   verbs: ["get", "create", "list", "delete", "patch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "create", "list", "delete", "patch"]
