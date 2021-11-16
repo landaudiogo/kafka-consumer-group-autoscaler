@@ -128,10 +128,10 @@ class StateReassignAlgorithm(State):
         self.ALGORITHM_STATUS = None
 
     def execute(self): 
-        self.controller.next_assignment = self.algorithm.run(
-            self.controller.consumer_list,
-            self.controller.unassigned_partitions
+        self.algorithm.treat_input(
+            self.controller.consumer_list, self.controller.unassigned_partitions
         )
+        self.controller.next_assignment = self.algorithm.run()
         self.ALGORITHM_STATUS = True
 
     def finished_approximation_algorithm(self): 
@@ -162,6 +162,7 @@ class StateGroupManagement(State):
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
         self.controller.create_consumers(delta.consumers_create)
+        self.controller.wait_deployments_ready()
         self.controller.change_consumers_state(delta)
         self.controller.consumer_list = self.controller.next_assignment
         self.controller.delete_consumers(delta.consumers_remove)

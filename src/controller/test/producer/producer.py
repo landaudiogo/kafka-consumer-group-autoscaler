@@ -13,14 +13,22 @@ producer = Producer(producer_conf)
 
 partition_speeds = {
     "delivery_events_v6_topic": {
-        0: 4,
-        1: 10,
-        2: 120, 
-        5: 199,
-        6: 10,
+        0: 9,
+        1: 0,
+        2: 1, 
+        5: 6,
+        6: 1,
+        7: 56, 
+        8: 31,
     }, 
     "delivery_events_v7_topic": {
-        0: 4,
+        0: 20,
+        1: 33,
+        2: 81,
+        4: 77,
+        7: 71,
+        8: 10,
+        9: 11,
     },
 }
 

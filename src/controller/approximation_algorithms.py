@@ -1,15 +1,13 @@
 from dstructures import (
-    ConsumerList, TopicPartitionConsumer, DataConsumer
+    ConsumerList, TopicPartitionConsumer, DataConsumer, PartitionSet
 )
 
 
 class ApproximationAlgorithm: 
 
 
-    def run(self, cpartitions, unassigned): 
-        for tp in cpartitions:
-            self.assign(tp) 
-        for tp in unassigned:
+    def run(self): 
+        for tp in self.partitions:
             self.assign(tp) 
         print(self.next_assignment)
         return self.next_assignment
@@ -21,16 +19,17 @@ class ApproximationAlgorithm:
 
 class NextFit(ApproximationAlgorithm): 
 
-
-    def run(self, consumer_list, unassigned): 
+    def run(self):
         self.next_assignment = ConsumerList()
         self.next_assignment.create_bin()
-        return super().run(consumer_list.partitions(), unassigned)
+        return super().run()
+
+    def treat_input(self, consumer_list, unassigned):
+        self.partitions = PartitionSet(unassigned) | consumer_list.partitions()
+        self.next_assignment = ConsumerList()
+        self.next_assignment.create_bin()
 
     def assign(self, tp: TopicPartitionConsumer): 
-        print(tp, self.next_assingment[-1])
-        print(self.next_assignment[-1].fits(tp))
-        print(self.next_assignment[-1].combined_speed)
         if (
             (not self.next_assignment[-1].fits(tp)) 
             and (self.next_assignment[-1].combined_speed != 0)
@@ -41,20 +40,21 @@ class NextFit(ApproximationAlgorithm):
 
 class NextFitDecreasing(NextFit): 
 
+    def treat_input(self, consumer_list, unassigned):
+        pset = consumer_list.partitions() | PartitionSet(unassigned)
+        self.partitions = sorted(pset.to_list(), reverse=True)
 
-    def run(self, consumer_list, unassigned): 
-        cpartitions = consumer_list.partitions()
-        clist = ConsumerList(sorted(cpartitions, reverse=True))
-        unass = sorted(unassigned, reverse=True)
-        return super().run(clist, unass)
 
 
 class FirstFit(ApproximationAlgorithm): 
 
 
-    def run(self, consumer_list, unassigned):
+    def run(self):
         self.next_assignment = ConsumerList()
-        return super().run(consumer_list.partitions(), unassigned)
+        return super().run()
+
+    def treat_input(self, consumer_list, unassigned): 
+        self.partitions = consumer_list.partitions() | PartitionSet(unassigned)
 
     def assign(self, tp: TopicPartitionConsumer): 
         firstfit = None
@@ -71,20 +71,19 @@ class FirstFit(ApproximationAlgorithm):
 
 class FirstFitDecreasing(FirstFit): 
 
-
-    def run(self, consumer_list, unassigned):
-        cpartitions = consumer_list.partitions()
-        clist = ConsumerList(sorted(cpartitions, reverse=True))
-        unass = sorted(unassigned, reverse=True)
-        return super().run(clist, unass)
+    def treat_input(self, consumer_list, unassigned): 
+        pset = consumer_list.partitions() | PartitionSet(unassigned)
+        self.partitions = sorted(pset.to_list(), reverse=True)
 
 
 class WorstFit(ApproximationAlgorithm): 
 
+    def treat_input(self, consumer_list, unassigned): 
+        self.partitions = PartitionSet(unassigned) | consumer_list.partitions()
     
-    def run(self, consumer_list, unassigned): 
+    def run(self): 
         self.next_assignment = ConsumerList()
-        return super().run(consumer_list.partitions(), unassigned)
+        return super().run()
 
     def assign(self, tp: TopicPartitionConsumer): 
         worstfit = None
@@ -107,20 +106,20 @@ class WorstFit(ApproximationAlgorithm):
 class WorstFitDecreasing(WorstFit): 
 
     
-    def run(self, consumer_list, unassigned): 
-        cpartitions = consumer_list.partitions()
-        clist = ConsumerList(sorted(cpartitions, reverse=True))
-        unass = sorted(unassigned, reverse=True)
-        return super().run(clist, unass)
+    def treat_input(self, consumer_list, unassigned):
+        pset = consumer_list.partitions() | PartitionSet(unassigned)
+        self.partitions = sorted(pset.to_list(), reverse=True)
 
 
 class BestFit(ApproximationAlgorithm): 
 
 
-    def run(self, consumer_list, unassigned):
-        self.next_assignment = ConsumerList()
-        return super().run(consumer_list.partitions(), unassigned)
+    def treat_input(self, consumer_list, unassigned): 
+        self.partitions = consumer_list.partitions() | PartitionSet(unassigned)
 
+    def run(self):
+        self.next_assignment = ConsumerList()
+        return super().run()
     
     def assign(self, tp: TopicPartitionConsumer): 
         bestfit = None
@@ -138,17 +137,21 @@ class BestFit(ApproximationAlgorithm):
 class BestFitDecreasing(BestFit): 
 
 
-    def run(self, consumer_list, unassigned): 
-        cpartitions = consumer_list.partitions()
-        clist = ConsumerList(sorted(cpartitions, reverse=True))
-        unass = sorted(unassigned, reverse=True)
-        return super().run(clist, unass)
+    def treat_input(self, consumer_list, unassigned):
+        pset = consumer_list.partitions() | PartitionSet(unassigned)
+        self.partitions = sorted(pset.to_list(), reverse=True)
 
 
 class ModifiedWorstFit(WorstFit): 
+    
 
+    def treat_input(self, consumer_list, unassigned):
+        self.consumer_list = consumer_list
+        self.unassigned = unassigned
 
-    def run(self, consumer_list, unassigned): 
+    def run(self): 
+        consumer_list = self.consumer_list
+        unassigned = self.unassigned
         self.next_assignment = ConsumerList()
         clist = [consumer for consumer in consumer_list if consumer != None]
         clist = sorted(clist, reverse=True)

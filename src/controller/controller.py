@@ -161,6 +161,20 @@ class Controller:
         d = self.de_controller_metadata.list_topics(topic)
         return len(d.topics[topic].partitions)
 
+    def wait_deployments_ready(self): 
+        with ApiClient(self.kube_configuration) as api_client:
+            while True:
+                kube_client = AppsV1Api(api_client)
+                unavailable_deps = [
+                    dep.status.unavailable_replicas 
+                    for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
+                        if dep.status.unavailable_replicas != None
+                ]
+                if len(unavailable_deps) == 0:
+                    return
+                time.sleep(0.5)
+
+
     def create_partitions(self, total_partitions): 
         future = self.kafka_cluster_admin.create_partitions([
             NewPartitions("data-engineering-controller", total_partitions)
