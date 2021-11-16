@@ -102,6 +102,8 @@ class DEConsumer(Consumer):
                         self.row_list.pop(i)
 
             self.current_assignment = future
+            if inc_assign or inc_unassign:
+                self.current_assignment.pretty_print()
 
 
     def consume_metadata(self):
@@ -109,7 +111,26 @@ class DEConsumer(Consumer):
         for obj in list_obj: 
             self.change_state_queue.put(obj)
         self.process_state_queue()
+        self.persist_metadata()
         self.metadata_consumer.commit()
+
+    def persist_metadata(self): 
+        with open("/usr/src/data/consumer_metadata.json", "w") as f:
+            json.dump(self.current_assignment.to_record(), f)
+
+    def load_persisted_metadata(self): 
+        with open("/usr/src/data/consumer_metadata.json", "r") as f:
+            assignment_record = json.load(f)
+            assign_partitions = []
+            for topic in assignment_record:
+                self.current_assignment[topic["topic_name"]] = DETopic(**topic)
+                for p in topic["partitions"]: 
+                    assign_partitions.append(TopicPartition(
+                        topic=topic["topic_name"], partition=p
+                    ))
+            self.assign(assign_partitions)
+            self.current_assignment.pretty_print()
+
 
     def __enter__(self):
         self.metadata_consumer = DEMetadataConsumer(
@@ -337,8 +358,7 @@ class DETopic:
                 raise e
 
     def __repr__(self): 
-        plist = [p.partition for p in self.partitions]
-        return f"{plist}"
+        return f"{list(self.partitions)}"
 
     def to_record(self):
         return {
@@ -370,6 +390,9 @@ class DETopicPartition(TopicPartition):
             if (self.topic, self.partition) == (other.topic, other.partition) 
             else False
         )
+
+    def __repr__(self): 
+        return f"{self.partition}"
 
 
 
@@ -417,6 +440,9 @@ class DETopicDict(dict):
                 for tp in value.partitions
         ]
 
+    def pretty_print(self): 
+        for topic in self.values(): 
+            print(topic.kwargs["topic_name"], topic)
 
 class ChangeStateEvent(DETopicDict):
 

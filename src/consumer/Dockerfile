@@ -12,11 +12,13 @@ ENV GROUP_ID='consumer_capacity_1'
 ENV BATCH_BYTES='5000000'
 ENV WAIT_TIME_SECS='1' 
 
-RUN mkdir -p /usr/src/data
-RUN mkdir -p /etc/podinfo
+RUN mkdir -p /usr/src/data && \
+    touch /usr/src/data/consumer_metadata.json && \
+    echo "[]" > /usr/src/data/consumer_metadata.json
 
-RUN touch /etc/podinfo/pod_name
+RUN mkdir -p /etc/podinfo && \
+    touch /etc/podinfo/pod_name 
 
 VOLUME ["/etc/podinfo", "/usr/src/data"]
 
-ENTRYPOINT ["python3", "-u", "generic_consumer.py"]
+ENTRYPOINT ["python3", "-u", "main.py"]

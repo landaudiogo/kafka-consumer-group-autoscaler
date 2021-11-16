@@ -1,0 +1,11 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: de-consumer-1-volume
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: pd-example
+  resources:
+    requests:
+      storage: 500M

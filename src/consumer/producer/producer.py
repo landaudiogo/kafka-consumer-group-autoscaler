@@ -271,7 +271,7 @@ with BytesIO() as stream:
         partition=1, 
         headers={
             "serializer": "de_avro.DEControllerSchema",
-            "event_type": "StartConsumingCommand"
+            "event_type": "StopConsumingCommand"
         }
     )
     producer.flush()
