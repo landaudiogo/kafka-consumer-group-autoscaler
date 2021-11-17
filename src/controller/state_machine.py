@@ -161,10 +161,10 @@ class StateGroupManagement(State):
 
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
-        self.controller.create_consumers(delta.consumers_create)
+        self.controller.create_consumers()
         self.controller.wait_deployments_ready()
         self.controller.change_consumers_state(delta)
-        self.controller.delete_consumers(delta.consumers_remove)
+        self.controller.delete_consumers()
         self.controller.consumer_list.pretty_print()
         self.FINAL_GROUP_STATE = True
 

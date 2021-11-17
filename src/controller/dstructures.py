@@ -395,10 +395,8 @@ class ConsumerList(list):
                 continue
             if final == None: 
                 final = DataConsumer(i)
-                gm.add_consumers_remove(final)
             if current == None: 
                 current = DataConsumer(i)
-                gm.add_consumers_create(current)
             start = final - current
             stop = current - final
             for partition in start.partitions():
@@ -412,11 +410,6 @@ class ConsumerList(list):
             fail_safe = set([DataConsumer(self.available_indices[0])])
         else: 
             fail_safe = set([DataConsumer(len(self))])
-        for c in fail_safe: 
-            if fail_safe in gm.consumers_remove:
-                gm.pop_consumers_remove(c)
-            else: 
-                gm.add_consumers_create(c)
         self.active_consumers = active_consumers | fail_safe
         return gm
 
@@ -551,8 +544,7 @@ class GroupManagement:
     def __init__(self): 
         self.batch = ConsumerMessageBatch()
         self.map_partition_actions = {}
-        self.consumers_create = set()
-        self.consumers_remove = set()
+        self.active_consumers = set()
 
     def add_action(self, action: Command): 
         p_actions = self.map_partition_actions.get(action.partition)
@@ -596,18 +588,6 @@ class GroupManagement:
                         topic_partitions["topic_name"], partition
                     ),
                 )
-
-    def add_consumers_remove(self, consumer: DataConsumer): 
-        self.consumers_remove.add(consumer)
-
-    def add_consumers_create(self, consumer: DataConsumer):
-        self.consumers_create.add(consumer)
-
-    def pop_consumers_remove(self, consumer: DataConsumer): 
-        self.consumers_remove.remove(consumer)
-
-    def pop_consumers_create(self, consumer: DataConsumer):
-        self.consumers_create.remove(consumer)
 
     def empty(self): 
         return len(self.map_partition_actions) == 0

@@ -159,9 +159,7 @@ class Controller:
         body["metadata"]["name"] = pvc_id
         return body
 
-    def create_consumers(self, consumers: List[DataConsumer]): 
-        if len(consumers) == 0:
-            return 
+    def create_consumers(self): 
         with ApiClient(self.kube_configuration) as api_client:
             core_v1_client = CoreV1Api(api_client)
             apps_v1_client = AppsV1Api(api_client)
@@ -193,9 +191,7 @@ class Controller:
                 apps_v1_client.create_namespaced_deployment("data-engineering-dev", dep)
                 print(f"created consumer with id {dep_id}")
 
-    def delete_consumers(self, consumers: List[DataConsumer]):
-        if not len(consumers):
-            return 
+    def delete_consumers(self):
         with ApiClient(self.kube_configuration) as api_client:
             apps_v1_client = AppsV1Api(api_client)
             existing_deployments = set(
