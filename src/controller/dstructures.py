@@ -204,8 +204,10 @@ class TopicDictConsumer(dict):
                 return False
         return True
 
+
 @functools.total_ordering
 class DataConsumer: 
+
 
     def __init__(
             self, 
@@ -290,9 +292,8 @@ class DataConsumer:
         return self
 
 
-
 class ConsumerList(list):
-    """Mapping to keep track of the consumers that are in use.
+    """Mapping to keep track a list of consumers.
 
     This class maintains the list's functionalities, and extends it's use to the
     specific use case of the list of consumers. 
@@ -386,6 +387,8 @@ class ConsumerList(list):
         return self.map_partition_consumer.get(tp)
 
     def __sub__(self, other): 
+        if not isinstance(other, ConsumerList): 
+            raise Exception()
         gm = GroupManagement()
         for i, (final, current) in enumerate(itertools.zip_longest(self, other)):
             if (final, current) == (None, None): 
@@ -404,6 +407,17 @@ class ConsumerList(list):
             for partition in stop.partitions():
                 action = StopCommand(final, partition)
                 gm.add_action(action)
+        active_consumers = set(c for c in self if c != None) 
+        if len(self.available_indices):
+            fail_safe = set([DataConsumer(self.available_indices[0])])
+        else: 
+            fail_safe = set([DataConsumer(len(self))])
+        for c in fail_safe: 
+            if fail_safe in gm.consumers_remove:
+                gm.pop_consumers_remove(c)
+            else: 
+                gm.add_consumers_create(c)
+        self.active_consumers = active_consumers | fail_safe
         return gm
 
     def partitions(self):
@@ -415,7 +429,7 @@ class ConsumerList(list):
     def pretty_print(self): 
         for consumer in self:
             if consumer != None:
-                print("{", consumer, "}")
+                print("{", consumer.consumer_id+1, "}")
                 consumer.pretty_print()
 
     def to_json(self): 
@@ -427,6 +441,7 @@ class ConsumerList(list):
     def from_json(self, clist): 
         clist = [
             DataConsumer(i).from_json(c_assignment) 
+            if c_assignment != None else None
             for i, c_assignment in enumerate(clist)
         ]
         print(clist)
@@ -528,6 +543,7 @@ class PartitionCommands:
 
     def empty(self):
         return (self.start, self.stop) == (None, None)
+
 
 class GroupManagement:
 

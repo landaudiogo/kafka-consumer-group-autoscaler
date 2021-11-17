@@ -34,18 +34,7 @@ class Controller:
 
     def __init__(self):
         self.monitor_consumer = Consumer(MONITOR_CONSUMER_CONFIG)
-        _, next_off = self.monitor_consumer.get_watermark_offsets(
-            TopicPartition(topic="data-engineering-monitor", partition=0)
-        )
-        last_off = next_off - 1
-        self.monitor_consumer.assign([TopicPartition(
-            topic="data-engineering-monitor", partition=0, offset=last_off
-        )])
-        while True:
-            cstate = self.monitor_consumer.assignment()[0].offset
-            if cstate == last_off:
-                break
-            time.sleep(0.01)
+        self.initialize_monitor_consumer()
 
         self.controller_consumer = Consumer(CONTROLLER_CONSUMER_CONFIG)
         self.controller_consumer.assign([TopicPartition(
@@ -55,7 +44,40 @@ class Controller:
         self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
         self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
 
+        self.state_machine = self.create_controller_state_machine()
+        self.state_machine.set_initial("s1")
 
+        self.unassigned_partitions = []
+        self.consumer_list = None
+        self.load_consumer_state()
+        self.next_assignment = None
+
+        self.template_deployment = None
+        self.template_pvc = None
+        self.kube_configuration = None
+        self.load_kube_data()
+
+        self.value_deserializer = AvroDeserializer() 
+        self.value_serializer = AvroSerializer(DEControllerSchema)
+
+
+    def initialize_monitor_consumer(self): 
+        earliest, latest = self.monitor_consumer.get_watermark_offsets(
+            TopicPartition(topic="data-engineering-monitor", partition=0)
+        )
+
+        last_off = latest - 1 if latest != earliest else latest
+        self.monitor_consumer.assign([TopicPartition(
+            topic="data-engineering-monitor", partition=0, offset=last_off
+        )])
+        while True:
+            cstate = self.monitor_consumer.assignment()[0].offset
+            if cstate == last_off:
+                break
+            time.sleep(0.01)
+
+
+    def create_controller_state_machine(self): 
         s1 = StateSentinel(self)
         s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
         s3 = StateGroupManagement(self)
@@ -73,16 +95,11 @@ class Controller:
             ("s2", "s3", s2.finished_approximation_algorithm),
             ("s3", "s1", s3.group_reached_state),
         ]
-        self.state_machine = StateMachine(
+        return StateMachine(
             self, states=states, transitions=transitions
         )
-        self.state_machine.set_initial("s1")
 
-        self.unassigned_partitions = []
-        self.consumer_list = None
-        self.load_consumer_state()
-        self.next_assignment = None
-
+    def load_kube_data(self):
         configuration = Configuration()
         with open('kubernetes-cluster/token', 'r') as f_token, \
              open('kubernetes-cluster/cluster-ip', 'r') as f_ip, \
@@ -97,10 +114,6 @@ class Controller:
         configuration.host = f"https://{cluster_ip}"
         configuration.ssl_ca_cert = 'kubernetes-cluster/cluster.ca'
         self.kube_configuration = configuration
-        
-        self.value_deserializer = AvroDeserializer() 
-        self.value_serializer = AvroSerializer(DEControllerSchema)
-
 
     def get_last_monitor_record(self): 
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
@@ -121,80 +134,15 @@ class Controller:
             else: 
                 time.sleep(0.01)
 
-    def create_consumers(self, consumers: List[DataConsumer]): 
-        if not len(consumers):
-            return 
-        with ApiClient(self.kube_configuration) as api_client:
-            core_v1_client = CoreV1Api(api_client)
-            kube_client = AppsV1Api(api_client)
-            existing_deployments = [
-                dep.metadata.name
-                for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
-            ]
-            existing_pvc = [
-                pvc.metadata.name 
-                for pvc in core_v1_client.list_namespaced_persistent_volume_claim("data-engineering-dev").items
-            ]
-            
-            if (len(self.next_assignment)+1) > self.get_num_partitions():
-                self.create_partitions(len(self.next_assignment) + 1)
-
-            for consumer in consumers:
-                deployment_id = f'de-consumer-{consumer.consumer_id+1}'
-                pvc_id = f'de-consumer-{consumer.consumer_id+1}-volume'
-                if deployment_id in existing_deployments:
-                    continue
-                if pvc_id not in existing_pvc:
-                    pvc = self.change_template_pvc(pvc_id)
-                    core_v1_client.create_namespaced_persistent_volume_claim("data-engineering-dev", pvc)
-                dep = self.change_template_deployment(deployment_id)
-                kube_client.create_namespaced_deployment("data-engineering-dev", dep)
-                print(f"created consumer with id {deployment_id}")
-
-    def delete_consumers(self, consumers: List[DataConsumer]):
-        if not len(consumers):
-            return 
-        with ApiClient(self.kube_configuration) as api_client:
-            kube_client = AppsV1Api(api_client)
-            existing_deployments = [
-                dep.metadata.name
-                for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
-            ]
-            
-            for consumer in consumers:
-                deployment_id = f'de-consumer-{consumer.consumer_id+1}'
-                if deployment_id in existing_deployments:
-                    deployments = kube_client.delete_namespaced_deployment(
-                        deployment_id, "data-engineering-dev"
-                    )
-                    print(f"removed consumer with id {deployment_id}")
-
     def get_num_partitions(self, topic="data-engineering-controller"):
         d = self.de_controller_metadata.list_topics(topic)
         return len(d.topics[topic].partitions)
-
-    def wait_deployments_ready(self): 
-        with ApiClient(self.kube_configuration) as api_client:
-            while True:
-                kube_client = AppsV1Api(api_client)
-                unavailable_deps = [
-                    dep.status.unavailable_replicas 
-                    for dep in kube_client.list_namespaced_deployment("data-engineering-dev").items
-                        if dep.status.unavailable_replicas != None
-                ]
-                if len(unavailable_deps) == 0:
-                    return
-                time.sleep(0.5)
-
 
     def create_partitions(self, total_partitions): 
         future = self.kafka_cluster_admin.create_partitions([
             NewPartitions("data-engineering-controller", total_partitions)
         ]).get("data-engineering-controller")
         if future.result() == None: 
-            while(self.get_num_partitions() != total_partitions):
-                time.sleep(0.01)
-            time.sleep(5)
             print(f"data-engineering-controller has now {total_partitions} partitions")
 
     def change_template_deployment(self, deployment_id): 
@@ -211,32 +159,102 @@ class Controller:
         body["metadata"]["name"] = pvc_id
         return body
 
+    def create_consumers(self, consumers: List[DataConsumer]): 
+        if len(consumers) == 0:
+            return 
+        with ApiClient(self.kube_configuration) as api_client:
+            core_v1_client = CoreV1Api(api_client)
+            apps_v1_client = AppsV1Api(api_client)
+
+            existing_deployments = set(
+                dep.metadata.name
+                for dep in apps_v1_client.list_namespaced_deployment("data-engineering-dev").items
+            )
+            existing_pvc = set(
+                pvc.metadata.name 
+                for pvc in core_v1_client.list_namespaced_persistent_volume_claim("data-engineering-dev").items
+            )
+            
+            if self.get_num_partitions() < (len(self.next_assignment) + 10):
+                self.create_partitions(len(self.next_assignment) + 10)
+
+            active_deps = set(
+                f"de-consumer-{c.consumer_id+1}"
+                for c in self.next_assignment.active_consumers
+            )
+            for dep_id in active_deps:
+                pvc_id = f'{dep_id}-volume'
+                if dep_id in existing_deployments:
+                    continue
+                if pvc_id not in existing_pvc:
+                    pvc = self.change_template_pvc(pvc_id)
+                    core_v1_client.create_namespaced_persistent_volume_claim("data-engineering-dev", pvc)
+                dep = self.change_template_deployment(dep_id)
+                apps_v1_client.create_namespaced_deployment("data-engineering-dev", dep)
+                print(f"created consumer with id {dep_id}")
+
+    def delete_consumers(self, consumers: List[DataConsumer]):
+        if not len(consumers):
+            return 
+        with ApiClient(self.kube_configuration) as api_client:
+            apps_v1_client = AppsV1Api(api_client)
+            existing_deployments = set(
+                dep.metadata.name
+                for dep in apps_v1_client.list_namespaced_deployment("data-engineering-dev").items
+            )
+            active_deps = set(
+                f"de-consumer-{c.consumer_id+1}"
+                for c in self.next_assignment.active_consumers
+            )
+            consumers_delete = existing_deployments - active_deps
+            for consumer in consumers_delete:
+                apps_v1_client.delete_namespaced_deployment(consumer, "data-engineering-dev")
+                print(f"removed consumer with id {consumer}")
+
+    def wait_deployments_ready(self): 
+        clist_set = set(
+            f"de-consumer-{c.consumer_id+1}" 
+            for c in self.next_assignment
+                if c != None
+        )
+        with ApiClient(self.kube_configuration) as api_client:
+            while True:
+                apps_v1_client = AppsV1Api(api_client)
+                unavailable_deps = set( 
+                    dep.metadata.name
+                    for dep in apps_v1_client.list_namespaced_deployment("data-engineering-dev").items
+                        if dep.status.unavailable_replicas != None
+                )
+                if clist_set - unavailable_deps == clist_set: 
+                    return 
+                time.sleep(0.5)
+
     def change_consumers_state(self, delta: GroupManagement):
         self.send_batch(delta.batch)
         delta.batch = ConsumerMessageBatch()
-        self.controller_producer.flush()
         while not delta.empty():
             msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
-            else:
-                record = self.value_deserializer(msg)
-                print(dict(msg.headers())["event_type"].decode())
-                for topic in record:
-                    print("-", topic["topic_name"], topic["partitions"])
-                event_type = (
-                    StartEvent
-                    if dict(msg.headers())["event_type"].decode() == "StartConsumingEvent"
-                    else StopEvent
-                )
-                delta.prepare_batch(event_type, record)
-                self.send_batch(delta.batch)
-                delta.batch = ConsumerMessageBatch()
-                self.controller_consumer.commit(msg)
+            record = self.value_deserializer(msg)
+            print(dict(msg.headers())["event_type"].decode())
+            for topic in record:
+                print("-", topic["topic_name"], topic["partitions"])
+            event_type = (
+                StartEvent
+                if dict(msg.headers())["event_type"].decode() == "StartConsumingEvent"
+                else StopEvent
+            )
+            delta.prepare_batch(event_type, record)
+            self.send_batch(delta.batch)
+            delta.batch = ConsumerMessageBatch()
+        self.controller_consumer.commit()
+        self.persist_consumer_state()
 
     def persist_consumer_state(self): 
         with open("/usr/src/data/consumer_group_state.json", "w") as f:
-            json.dump(self.consumer_list.to_json(), f)
+            json.dump(self.next_assignment.to_json(), f)
+        self.consumer_list = self.next_assignment
 
     def load_consumer_state(self): 
         try: 
