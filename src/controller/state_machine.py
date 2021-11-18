@@ -162,19 +162,6 @@ class StateGroupManagement(State):
 
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
-
-        Rscore_absolute = functools.reduce(
-            lambda accum, p: p.speed + accum,
-            delta.map_partition_actions, 0
-        )
-        Nconsumers = len(self.controller.next_assignment.active_consumers)-1
-        print(Rscore_absolute/CONSUMER_CAPACITY, Rscore_absolute/ALGO_CAPACITY, Nconsumers)
-
-        self.controller.consumer_list = self.controller.next_assignment
-
-        self.FINAL_GROUP_STATE = True
-        return 
-
         self.controller.create_consumers()
         self.controller.wait_deployments_ready()
         self.controller.change_consumers_state(delta)
