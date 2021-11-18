@@ -7,6 +7,8 @@ metadata:
     consumerGroup: de-consumer-group
 spec:
   replicas: 1
+  strategy: 
+    type: Recreate
   selector:
     matchLabels:
       app: de-consumer

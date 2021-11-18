@@ -20,7 +20,7 @@ CONTROLLER_PRODUCER_CONFIG = {
     'client.id': 'controller-producer', 
 }
 
-MAX_TIME_S1 = 10
+MAX_TIME_S1 = 1
 CONSUMER_CAPACITY = 200
 ALGO_CAPACITY = 100
 

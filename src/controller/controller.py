@@ -60,6 +60,8 @@ class Controller:
         self.value_deserializer = AvroDeserializer() 
         self.value_serializer = AvroSerializer(DEControllerSchema)
 
+        self.test_speeds = None
+
 
     def initialize_monitor_consumer(self): 
         earliest, latest = self.monitor_consumer.get_watermark_offsets(
@@ -79,7 +81,7 @@ class Controller:
 
     def create_controller_state_machine(self): 
         s1 = StateSentinel(self)
-        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
+        s2 = StateReassignAlgorithm(self, approximation_algorithm="ff")
         s3 = StateGroupManagement(self)
         s4 = State(self)
         states = [
@@ -116,6 +118,13 @@ class Controller:
         self.kube_configuration = configuration
 
     def get_last_monitor_record(self): 
+        if self.test_speeds == None: 
+            with open("test/monitor_sequence/measurements_9", "r") as f:
+                self.test_speeds = json.load(f)
+        idx = self.state_machine.states["s1"].ITERATION
+        if idx >= len(self.test_speeds):
+            exit(0)
+        return self.test_speeds[idx]
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
             TopicPartition(topic="data-engineering-monitor", partition=0)
         )
