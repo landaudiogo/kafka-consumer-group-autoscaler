@@ -20,8 +20,8 @@ CONTROLLER_PRODUCER_CONFIG = {
     'client.id': 'controller-producer', 
 }
 
-MAX_TIME_S1 = 1
-CONSUMER_CAPACITY = 200
+MAX_TIME_S1 = 0.25
+CONSUMER_CAPACITY = 133
 ALGO_CAPACITY = 100
 
 with open("detopic_metadata.json", "r") as f:

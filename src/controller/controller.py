@@ -81,7 +81,7 @@ class Controller:
 
     def create_controller_state_machine(self): 
         s1 = StateSentinel(self)
-        s2 = StateReassignAlgorithm(self, approximation_algorithm="ff")
+        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
         s3 = StateGroupManagement(self)
         s4 = State(self)
         states = [
@@ -119,7 +119,7 @@ class Controller:
 
     def get_last_monitor_record(self): 
         if self.test_speeds == None: 
-            with open("test/monitor_sequence/measurements_9", "r") as f:
+            with open("test/monitor_sequence/measurements_25", "r") as f:
                 self.test_speeds = json.load(f)
         idx = self.state_machine.states["s1"].ITERATION
         if idx >= len(self.test_speeds):
