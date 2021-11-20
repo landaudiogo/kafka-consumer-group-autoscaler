@@ -1,5 +1,6 @@
 import time
 import functools
+import random
 
 from typing import Callable
 from config import MAX_TIME_S1, CONSUMER_CAPACITY, ALGO_CAPACITY
@@ -31,7 +32,6 @@ class State:
         self.transitions = []
 
     def entry(self):
-        print(self)
         self.start_time = time.time()
 
     def elapsed_time(self): 
@@ -94,7 +94,9 @@ class StateSentinel(State):
     def execute(self): 
         partition_speeds = self.controller.get_last_monitor_record()
         for topic_name, p_speeds in partition_speeds.items(): 
-            for p_str, speed  in p_speeds.items():
+            p_speeds = list(p_speeds.items())
+            random.shuffle(p_speeds)
+            for p_str, speed  in p_speeds:
                 speed = min(CONSUMER_CAPACITY, speed)
                 p_int = int(p_str)
                 tp = TopicPartitionConsumer(topic_name, p_int)
@@ -146,6 +148,15 @@ class StateGroupManagement(State):
     def __init__(self, controller):
         super().__init__(controller)
         self.FINAL_GROUP_STATE = None
+        self.evaluation_metrics = [(
+            "file", 
+            "algorithm",
+            "iteration",
+            "Rscore_Consumer_Capacity", 
+            "Rscore_Algorithm_Capacity", 
+            "Number of Reassignments", 
+            "Number of Consumers", 
+        )]
 
     def entry(self): 
         super().entry()
@@ -162,13 +173,31 @@ class StateGroupManagement(State):
 
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
-
+        
+        reassigned_partitions = [p for p, actions in delta.map_partition_actions.items() if actions.stop != None]
         Rscore_absolute = functools.reduce(
             lambda accum, p: p.speed + accum,
-            delta.map_partition_actions, 0
+            reassigned_partitions, 0,
         )
         Nconsumers = len(self.controller.next_assignment.active_consumers)-1
-        print(Rscore_absolute/CONSUMER_CAPACITY, Rscore_absolute/ALGO_CAPACITY, Nconsumers)
+        self.evaluation_metrics.append((
+            self.controller.current_file,
+            self.controller.current_algorithm,
+            self.controller.state_machine.states["s1"].ITERATION,
+            Rscore_absolute/CONSUMER_CAPACITY,
+            Rscore_absolute/ALGO_CAPACITY,
+            len(reassigned_partitions),
+            Nconsumers
+        ))
+        # if Rscore_absolute == 0: 
+            # iteration = self.controller.state_machine.states["s1"].ITERATION
+            # print(f"=== Iteration {iteration} ===")
+            # print("=== Current ===")
+            # self.controller.consumer_list.pretty_print()
+            # print("=== Future ===")
+            # self.controller.next_assignment.pretty_print()
+            # print(self.controller.test_speeds[iteration-2])
+            # print(self.controller.test_speeds[iteration-1])
 
         self.controller.consumer_list = self.controller.next_assignment
 

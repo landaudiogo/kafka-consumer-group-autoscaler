@@ -1,4 +1,31 @@
 import time
+import os
+import json
+
+from os.path import isfile, join
+
+def file_generator(): 
+    base_dir = "./test/monitor_sequence"
+    list_file_names = [
+        f 
+        for f in os.listdir(base_dir) 
+        if (isfile(join(base_dir, f)) 
+            and join(base_dir, f) != join(base_dir, "make_sequence.py")
+        )
+    ]
+    print(list_file_names)
+    for file_name in list_file_names: 
+        with open(join(base_dir, file_name), "r") as f:
+            print(file_name)
+            yield file_name, json.load(f)
+        
+
+def algorithm_generator(): 
+    # algorithms = ["mwf", "bfd", "ffd", "wfd", "nfd", "bf", "ff", "nf"]
+    algorithms = ["mbf", "wf", "wfd", "mwf", "ffd", "ff", "bfd", "bf"]
+    for a in algorithms: 
+        yield a
+
 
 
 class Timeline:

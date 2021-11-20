@@ -356,9 +356,10 @@ class ConsumerList(list):
                     raise Exception()
                 self[idx] = DataConsumer(idx)
                 self.available_indices.pop(pos)
+            return idx
 
     def get_idx(self, idx: int): 
-        if (-len(self) <= idx < len(self)): 
+        if (-1*len(self) <= idx < len(self)): 
             return self[idx]
         return None
 
@@ -416,6 +417,8 @@ class ConsumerList(list):
     def partitions(self):
         all_partitions = PartitionSet()
         for c in self:
+            if c == None:
+                continue
             all_partitions = all_partitions | c.partitions()
         return all_partitions
 

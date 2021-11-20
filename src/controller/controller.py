@@ -4,6 +4,7 @@ import json
 import copy
 import yaml
 import fastavro
+import csv
 
 from io import BytesIO
 from typing import Tuple, List
@@ -25,6 +26,8 @@ from state_machine import (
     StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
     State
 )
+from approximation_algorithms import AlgorithmFactory
+from utilities import file_generator, algorithm_generator
 from de_avro import DEControllerSchema
 
 
@@ -60,7 +63,14 @@ class Controller:
         self.value_deserializer = AvroDeserializer() 
         self.value_serializer = AvroSerializer(DEControllerSchema)
 
-        self.test_speeds = None
+        self.algorithm_generator = algorithm_generator()
+        self.file_generator = file_generator()
+        self.current_file, self.test_speeds = next(self.file_generator)
+        self.current_algorithm = next(self.algorithm_generator)
+        self.consumer_list = ConsumerList()
+        state_reassign = self.state_machine.states["s2"]
+        state_reassign.algorithm = AlgorithmFactory.get_algorithm(self.current_algorithm)
+
 
 
     def initialize_monitor_consumer(self): 
@@ -81,7 +91,7 @@ class Controller:
 
     def create_controller_state_machine(self): 
         s1 = StateSentinel(self)
-        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
+        s2 = StateReassignAlgorithm(self)
         s3 = StateGroupManagement(self)
         s4 = State(self)
         states = [
@@ -118,30 +128,30 @@ class Controller:
         self.kube_configuration = configuration
 
     def get_last_monitor_record(self): 
-        if self.test_speeds == None: 
-            with open("test/monitor_sequence/measurements_25", "r") as f:
-                self.test_speeds = json.load(f)
         idx = self.state_machine.states["s1"].ITERATION
         if idx >= len(self.test_speeds):
-            exit(0)
+            self.state_machine.states["s1"].ITERATION = 0
+            self.consumer_list = ConsumerList()
+            try:
+                print(f"=== Terminated {self.current_algorithm} ===")
+                self.current_algorithm = next(self.algorithm_generator)
+            except StopIteration:
+                self.algorithm_generator = algorithm_generator()
+                self.current_algorithm = next(self.algorithm_generator)
+                try: 
+                    print(f"=== Processed {self.current_file} ===")
+                    self.current_file, self.test_speeds = next(self.file_generator)
+                except StopIteration:
+                    with open(f"/usr/src/data/algorithm_data", "w") as f:
+                        writer = csv.writer(f)
+                        writer.writerows(self.state_machine.states["s3"].evaluation_metrics)
+                    print("TIME TO COPY THE FILE")
+                    time.sleep(300)
+                    exit(0)
+            state_reassign = self.state_machine.states["s2"]
+            state_reassign.algorithm = AlgorithmFactory.get_algorithm(self.current_algorithm)
+            return self.get_last_monitor_record()
         return self.test_speeds[idx]
-        start_off, next_off = self.monitor_consumer.get_watermark_offsets(
-            TopicPartition(topic="data-engineering-monitor", partition=0)
-        )
-        if start_off == next_off: 
-            return None
-
-        last_off = next_off - 1
-        self.monitor_consumer.seek(TopicPartition(
-            topic="data-engineering-monitor", partition=0, offset=last_off
-        ))
-        while True:
-            msg = self.monitor_consumer.poll(timeout=0)
-            if msg != None: 
-                if msg.error() == None:
-                    return json.loads(msg.value())
-            else: 
-                time.sleep(0.01)
 
     def get_num_partitions(self, topic="data-engineering-controller"):
         d = self.de_controller_metadata.list_topics(topic)
