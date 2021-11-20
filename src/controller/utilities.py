@@ -22,7 +22,7 @@ def file_generator():
 
 def algorithm_generator(): 
     # algorithms = ["mwf", "bfd", "ffd", "wfd", "nfd", "bf", "ff", "nf"]
-    algorithms = ["mbf", "wf", "wfd", "mwf", "ffd", "ff", "bfd", "bf"]
+    algorithms = ["nf", "nfd", "ff", "ffd", "wf", "wfd", "bf", "bfd", "mwf", "mbf"]
     for a in algorithms: 
         yield a
 
