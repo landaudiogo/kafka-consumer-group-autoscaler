@@ -1,6 +1,7 @@
 from dstructures import (
     ConsumerList, TopicPartitionConsumer, DataConsumer, PartitionSet
 )
+from utilities import custom_comparator
 import random
 
 
@@ -116,7 +117,7 @@ class WorstFit(ApproximationAlgorithm):
             if c.fits(tp): 
                 if (
                     (worstfit == None) 
-                    or (c.combined_speed > worstfit.combined_speed)
+                    or (c.combined_speed < worstfit.combined_speed)
                 ):
                     worstfit = c
 
@@ -170,6 +171,9 @@ class BestFitDecreasing(DecreasingInput, BestFit):
 class ModifiedWorstFit(WorstFit): 
     
 
+    def __init__(self, compare_key=None):
+        self.compare_key = compare_key
+
     def treat_input(self, consumer_list, unassigned):
         self.consumer_list = consumer_list
         self.unassigned = unassigned
@@ -180,7 +184,7 @@ class ModifiedWorstFit(WorstFit):
         self.next_assignment = ConsumerList()
 
         clist = [consumer for consumer in consumer_list if consumer != None]
-        clist = sorted(clist, reverse=True)
+        clist = sorted(clist, reverse=True, key=self.compare_key)
         for c in clist: 
             cpartitions = sorted(c.partitions().to_list(), reverse=True)
             for i in range(len(cpartitions)-1, -1, -1):
@@ -211,7 +215,7 @@ class ModifiedWorstFit(WorstFit):
             if c.fits(tp): 
                 if (
                     (worstfit == None)
-                    or (c.combined_speed > worstfit.combined_speed)
+                    or (c.combined_speed < worstfit.combined_speed)
                 ):
                     worstfit = c
         if worstfit != None: 
@@ -239,7 +243,10 @@ class ModifiedWorstFit(WorstFit):
 
 
 class ModifiedBestFit(BestFit): 
-    
+
+
+    def __init__(self, compare_key=None):
+        self.compare_key = compare_key
 
     def treat_input(self, consumer_list, unassigned):
         self.consumer_list = consumer_list
@@ -251,7 +258,7 @@ class ModifiedBestFit(BestFit):
         self.next_assignment = ConsumerList()
 
         clist = [consumer for consumer in consumer_list if consumer != None]
-        clist = sorted(clist, reverse=True)
+        clist = sorted(clist, reverse=True, key=self.compare_key)
         for c in clist: 
             cpartitions = sorted(c.partitions().to_list(), reverse=True)
             for i in range(len(cpartitions)-1, -1, -1):
@@ -282,7 +289,7 @@ class ModifiedBestFit(BestFit):
             if c.fits(tp): 
                 if (
                     (bestfit == None)
-                    or (c.combined_speed < bestfit.combined_speed)
+                    or (c.combined_speed > bestfit.combined_speed)
                 ):
                     bestfit = c
         if bestfit != None: 
@@ -333,6 +340,10 @@ class AlgorithmFactory:
         elif algo_name in ("mwf", "modified worst fit"):
             return ModifiedWorstFit()
         elif algo_name in ("mbf", "modified best fit"):
-            return ModifiedWorstFit()
+            return ModifiedBestFit()
+        elif algo_name in ("mwfp", "modified worst fit partitions"):
+            return ModifiedWorstFit(compare_key=custom_comparator)
+        elif algo_name in ("mbfp", "modified best fit partitions"):
+            return ModifiedBestFit(compare_key=custom_comparator)
         else: 
             raise Exception()
