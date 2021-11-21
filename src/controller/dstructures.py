@@ -305,6 +305,7 @@ class ConsumerList(list):
             clist = []
         self.available_indices = []
         self.map_partition_consumer = {}
+        self.last_created_bin = None
         for i, c in enumerate(clist):
             if c == None: 
                 self.available_indices.append(i)
@@ -334,9 +335,11 @@ class ConsumerList(list):
             if len(self.available_indices): 
                 lowest_idx = self.available_indices[0]
                 self[lowest_idx] = DataConsumer(lowest_idx)
+                self.last_created_bin = self[lowest_idx]
                 return self.available_indices.pop(0)
             else: 
                 self.append(DataConsumer(last_idx+1))
+                self.last_created_bin = self[last_idx+1]
                 return last_idx+1
         else:
             if (idx < 0): 
@@ -356,9 +359,11 @@ class ConsumerList(list):
                     raise Exception()
                 self[idx] = DataConsumer(idx)
                 self.available_indices.pop(pos)
+            self.last_created_bin = self[idx]
+            return idx
 
     def get_idx(self, idx: int): 
-        if (-len(self) <= idx < len(self)): 
+        if (-1*len(self) <= idx < len(self)): 
             return self[idx]
         return None
 
@@ -416,6 +421,8 @@ class ConsumerList(list):
     def partitions(self):
         all_partitions = PartitionSet()
         for c in self:
+            if c == None:
+                continue
             all_partitions = all_partitions | c.partitions()
         return all_partitions
 

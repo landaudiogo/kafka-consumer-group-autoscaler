@@ -81,7 +81,7 @@ class Controller:
 
     def create_controller_state_machine(self): 
         s1 = StateSentinel(self)
-        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
+        s2 = StateReassignAlgorithm(self, approximation_algorithm="bf")
         s3 = StateGroupManagement(self)
         s4 = State(self)
         states = [
