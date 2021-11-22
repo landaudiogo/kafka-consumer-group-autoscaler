@@ -254,6 +254,12 @@ class DataConsumer:
             return True
         return False
 
+    def biggest_speed(self): 
+        return functools.reduce(
+            lambda accum, tp: accum if accum > tp.speed else tp.speed,
+            self.partitions(), 0
+        )
+
     def __repr__(self): 
         return f'{self.consumer_id}'
 
