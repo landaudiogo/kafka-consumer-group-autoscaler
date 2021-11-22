@@ -9,7 +9,7 @@ for i in range(0, 30, 5):
     }
     first_measurement = {
         topic: {
-            partition: random.randint(0, 100)
+            partition: 0
             for partition in partitions
         } 
         for topic, partitions in topic_partitions.items()
