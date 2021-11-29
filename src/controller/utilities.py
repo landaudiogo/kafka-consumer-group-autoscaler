@@ -1,4 +1,37 @@
 import time
+import os
+import json
+
+from os.path import isfile, join
+from functools import cmp_to_key
+
+def custom_comparator(consumer1, consumer2): 
+    return consumer1.biggest_speed() - consumer2.biggest_speed()
+custom_comparator = cmp_to_key(custom_comparator)
+
+def file_generator(): 
+    base_dir = "./test/monitor_sequence"
+    list_file_names = [
+        f 
+        for f in os.listdir(base_dir) 
+        if (isfile(join(base_dir, f)) 
+            and join(base_dir, f) not in [join(base_dir, "make_sequence.py"),
+                                          join(base_dir, ".gitignore")]
+        )
+    ]
+    print(list_file_names)
+    for file_name in list_file_names: 
+        with open(join(base_dir, file_name), "r") as f:
+            print(file_name)
+            yield file_name, json.load(f)
+        
+
+def algorithm_generator(): 
+    # algorithms = ["mwf", "bfd", "ffd", "wfd", "nfd", "bf", "ff", "nf"]
+    algorithms = ["mwfp", "mbfp", "nf", "nfd", "ff", "ffd", "wf", "wfd", "bf", "bfd", "mwf", "mbf"]
+    for a in algorithms: 
+        yield a
+
 
 
 class Timeline:

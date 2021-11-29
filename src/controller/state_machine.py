@@ -1,7 +1,8 @@
 import time
+import functools
 
 from typing import Callable
-from config import MAX_TIME_S1, CONSUMER_CAPACITY
+from config import MAX_TIME_S1, CONSUMER_CAPACITY, ALGO_CAPACITY
 from dstructures import (
     TopicPartitionConsumer, ConsumerList
 )
