@@ -123,6 +123,13 @@ class Controller:
                 self.test_speeds = json.load(f)
         idx = self.state_machine.states["s1"].ITERATION
         if idx >= len(self.test_speeds):
+            with open("unassigned.log", "w") as f_unassigned, \
+                 open("current.log", "w") as f_current, \
+                 open("next.log", "w") as f_next:
+                json.dump(self.state_machine.states["s1"].list_unassigned_partitions, f_unassigned)
+                json.dump(self.state_machine.states["s1"].list_current_state, f_current)
+                json.dump(self.state_machine.states["s2"].list_next_assignment, f_next)
+            time.sleep(300)
             exit(0)
         return self.test_speeds[idx]
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(

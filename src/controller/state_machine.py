@@ -1,3 +1,4 @@
+import json
 import time
 import functools
 
@@ -67,6 +68,8 @@ class StateSentinel(State):
 
     def __init__(self, *args, **kwargs):
         self.ITERATION = 0
+        self.list_current_state = []
+        self.list_unassigned_partitions = []
         super().__init__(*args, **kwargs)
 
     def time_up(self):
@@ -89,6 +92,15 @@ class StateSentinel(State):
 
     def exit(self):
         super().exit()
+        self.list_current_state.append(
+            self.controller.consumer_list.to_json()
+        )
+        self.list_unassigned_partitions.append(
+            [
+                p.to_json()
+                for p in self.controller.unassigned_partitions
+            ]
+        )
         self.ITERATION += 1
 
     def execute(self): 
@@ -119,6 +131,7 @@ class StateReassignAlgorithm(State):
         self.algorithm = AlgorithmFactory.get_algorithm(
             kwargs.get("approximation_algorithm", "bfd")
         )
+        self.list_next_assignment = []
 
     def entry(self): 
         super().entry()
@@ -126,6 +139,9 @@ class StateReassignAlgorithm(State):
 
     def exit(self): 
         super().exit()
+        self.list_next_assignment.append(
+            self.controller.next_assignment.to_json()
+        )
         self.ALGORITHM_STATUS = None
 
     def execute(self): 
@@ -162,6 +178,10 @@ class StateGroupManagement(State):
 
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
+        self.controller.consumer_list = self.controller.next_assignment
+        self.FINAL_GROUP_STATE = True
+        print(json.dumps(self.controller.consumer_list.to_json()))
+        return
         self.controller.create_consumers()
         self.controller.wait_deployments_ready()
         self.controller.change_consumers_state(delta)

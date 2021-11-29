@@ -30,7 +30,14 @@ class TopicPartitionConsumer:
         return self.speed < other.speed
 
     def __repr__(self): 
-        return f'<{self.partition} -> {self.speed}>'
+        return f'{self.partition}: {self.speed}'
+
+    def to_json(self): 
+        return {
+            "topic": self.topic, 
+            "partition": self.partition, 
+            "speed": self.speed
+        }
 
     def copy(self):
         return TopicPartitionConsumer(
@@ -117,7 +124,7 @@ class TopicConsumer:
         )
 
     def __repr__(self): 
-        d = {self.topic_name: [partition for partition in self.partitions]}
+        d = {partition for partition in self.partitions}
         return f'{d}'
 
     def to_record(self): 
@@ -132,7 +139,7 @@ class TopicConsumer:
     def to_json(self): 
         return {
             "topic_name": self.topic_name,
-            "partitions": [p.partition for p in self.partitions.to_list()]
+            "partitions": {p.partition: p.speed for p in self.partitions.to_list()}
         }
 
 
@@ -173,8 +180,8 @@ class TopicDictConsumer(dict):
         )
 
     def __repr__(self): 
-        return f'{set(self.values())}'
-
+        return f'{super().__repr__()}'
+    
     def partitions(self): 
         res = PartitionSet()
         for v in self.values(): 
@@ -272,6 +279,9 @@ class DataConsumer:
 
     def partitions(self): 
         return self.assignment.partitions()
+
+    def print_current_state(self): 
+        print(self.assignment)
 
     def pretty_print(self): 
         for topic in self.assignment.values(): 
@@ -437,6 +447,15 @@ class ConsumerList(list):
             if consumer != None:
                 print("{", consumer.consumer_id+1, "}")
                 consumer.pretty_print()
+
+    def print_current_state(self): 
+        print("[")
+        for consumer in self: 
+            if consumer != None: 
+                consumer.print_current_state()
+            else: 
+                print("{}")
+        print("]")
 
     def to_json(self): 
         return [
