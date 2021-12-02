@@ -4,8 +4,8 @@ import random
 for i in range(0, 30, 5):
     delta = i
     topic_partitions = {
-        "delivery_events_v6_topic": [i for i in range(100)],
-        "delivery_events_v7_topic": [i for i in range(100)],
+        "delivery_events_v6_topic": [i for i in range(8)],
+        "delivery_events_v7_topic": [i for i in range(8)],
     }
     first_measurement = {
         topic: {
@@ -16,7 +16,7 @@ for i in range(0, 30, 5):
     }
     measurements = [first_measurement]
 
-    for _ in range(500):
+    for _ in range(100):
         new_measurement = {
             topic: {
                 partition: min(max(speed + random.randint(-1*delta, delta), 0), 100)
