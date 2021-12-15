@@ -1,7 +1,7 @@
 import json
 
 MONITOR_CONSUMER_CONFIG = {
-    'bootstrap.servers': "broker:29092", 
+    'bootstrap.servers': "52.213.38.208:9092", 
     'group.id': "data-engineering-controller", 
     'auto.offset.reset': 'earliest',
 }
