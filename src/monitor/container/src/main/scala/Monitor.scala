@@ -49,7 +49,7 @@ object Monitor {
 
     def main(args: Array[String]) = {
         val adminClient = adminClientCreate("18.202.250.11:9092") //prod:18.202.250.11 uat:52.213.38.208
-        val producerClient = producerClientCreate("broker:29092")
+        val producerClient = producerClientCreate("52.213.38.208:9092")
         val topicsOfInterest = Set("delivery_events_v6_topic")
         val tseries = Queue[Measurement]()
 
