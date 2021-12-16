@@ -11,8 +11,11 @@
 - retention.ms set to -1.
 - Create the process that keeps track of the bytes for at most the last 30 seconds.
 - Produce a message to the topic with the relevant information to be given to the orchestrator. (TopicPartition speed for each partition of interest)
+- Simulate and compare the measured speed at the producer and the measured speed at the monitor. Produce Graph.
+
 
 ADDITIONAL
+- Accomodate for increasing number of partitions in a topic.
 - Create a filter (low-pass) to regulate the rate of change of the measured speed by the monitor.
 
 
