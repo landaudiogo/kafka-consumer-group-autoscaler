@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox
+  namespace: data-engineering-dev
+  labels: {app: busybox}
+spec:
+  selector: {matchLabels: {app: busybox}}
+  template:
+    metadata: {labels: {app: busybox}}
+    spec:
+      containers:
+      - name: busybox
+        image: busybox
+        command:
+        - "sh"
+        - "-c"
+        - |
+          echo "hello this is my first busybox test" 
+          sleep 120

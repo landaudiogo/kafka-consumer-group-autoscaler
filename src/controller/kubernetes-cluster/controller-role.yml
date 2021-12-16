@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: 
+  namespace: data-engineering-dev
+  name: controller-role
+rules:
+- apiGroups: ["extensions", "apps"]
+  resources: ["deployments", "deployments/status"]
+  verbs: ["get", "create", "list", "delete", "patch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "create", "list", "delete", "patch"]
