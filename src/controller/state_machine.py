@@ -2,7 +2,10 @@ import time
 import functools
 
 from typing import Callable
-from config import MAX_TIME_S1, CONSUMER_CAPACITY, ALGO_CAPACITY
+from config import (
+    MAX_TIME_S1, CONSUMER_CAPACITY, ALGO_CAPACITY,
+    MAX_TIME_STATE_GM
+)
 from dstructures import (
     TopicPartitionConsumer, ConsumerList
 )
@@ -169,10 +172,10 @@ class StateGroupManagement(State):
         return self.OUT_OF_SYNC
 
     def execute(self): 
-        delta = self.controller.next_assignment - self.controller.consumer_list 
-        self.controller.create_consumers()
-        self.controller.wait_deployments_ready()
         try:
+            delta = self.controller.next_assignment - self.controller.consumer_list 
+            self.controller.create_consumers()
+            self.controller.wait_deployments_ready()
             self.controller.change_consumers_state(delta)
         except Exception as e:
             self.OUT_OF_SYNC = True
