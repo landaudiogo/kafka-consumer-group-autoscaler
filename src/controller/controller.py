@@ -4,9 +4,10 @@ import json
 import copy
 import yaml
 import fastavro
+import re
 
 from io import BytesIO
-from typing import Tuple, List
+from typing import Tuple, List, Set
 from confluent_kafka import Consumer, TopicPartition, Producer
 from confluent_kafka.admin import AdminClient, ConfigResource, NewPartitions
 from kubernetes.client import (
@@ -23,7 +24,7 @@ from dstructures import (
 )
 from state_machine import (
     StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
-    State
+    StateInitialize, StateSynchronize
 )
 from de_avro import DEControllerSchema
 
@@ -45,7 +46,7 @@ class Controller:
         self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
 
         self.state_machine = self.create_controller_state_machine()
-        self.state_machine.set_initial("s1")
+        self.state_machine.set_initial("initialize")
 
         self.unassigned_partitions = []
         self.consumer_list = None
@@ -78,22 +79,28 @@ class Controller:
 
 
     def create_controller_state_machine(self): 
-        s1 = StateSentinel(self)
-        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
-        s3 = StateGroupManagement(self)
-        s4 = State(self)
+        initialize = StateInitialize(self)
+        synchronize = StateSynchronize(self)
+        sentinel = StateSentinel(self)
+        reassign = StateReassignAlgorithm(self, approximation_algorithm="mwf")
+        manage = StateGroupManagement(self)
         states = [
-            ("s1", s1), 
-            ("s2", s2), 
-            ("s3", s3),
-            ("s4", s4),
+            ("initialize", initialize), 
+            ("synchronize", synchronize), 
+            ("sentinel", sentinel), 
+            ("reassign", reassign), 
+            ("manage", manage), 
         ]
         transitions = [
-            ("s1", "s2", s1.time_up),
-            ("s1", "s2", s1.full_bin),
-            ("s1", "s2", s1.any_unassigned),
-            ("s2", "s3", s2.finished_approximation_algorithm),
-            ("s3", "s1", s3.group_reached_state),
+            ("initialize", "synchronize", initialize.no_persisted_state),
+            ("initialize", "sentinel", initialize.persisted_state),
+            ("synchronize", "sentinel", synchronize.synchronized),
+            ("sentinel", "reassign", sentinel.time_up),
+            ("sentinel", "reassign", sentinel.full_bin),
+            ("sentinel", "reassign", sentinel.any_unassigned),
+            ("reassign", "manage", reassign.finished_approximation_algorithm),
+            ("manage", "sentinel", manage.group_reached_state),
+            ("manage", "synchronize", manage.out_of_sync),
         ]
         return StateMachine(
             self, states=states, transitions=transitions
@@ -138,12 +145,12 @@ class Controller:
         d = self.de_controller_metadata.list_topics(topic)
         return len(d.topics[topic].partitions)
 
-    def create_partitions(self, total_partitions): 
+    def create_partitions(self, total_partitions, topic="data-engineering-controller"): 
         future = self.kafka_cluster_admin.create_partitions([
-            NewPartitions("data-engineering-controller", total_partitions)
-        ]).get("data-engineering-controller")
+            NewPartitions(topic, total_partitions)
+        ]).get(topic)
         if future.result() == None: 
-            print(f"data-engineering-controller has now {total_partitions} partitions")
+            print(f"{topic} has now {total_partitions} partitions")
 
     def change_template_deployment(self, deployment_id): 
         body = copy.deepcopy(self.template_deployment)
@@ -175,6 +182,8 @@ class Controller:
             
             if self.get_num_partitions() < (len(self.next_assignment) + 10):
                 self.create_partitions(len(self.next_assignment) + 10)
+            if self.get_num_partitions(topic="data-engineering-query") < (len(self.next_assignment) + 10):
+                self.create_partitions(len(self.next_assignment) + 10, topic="data-engineering-query")
 
             active_deps = set(
                 f"de-consumer-{c.consumer_id+1}"
@@ -226,14 +235,18 @@ class Controller:
                 time.sleep(0.5)
 
     def change_consumers_state(self, delta: GroupManagement):
+        self.clear_state_file()
         self.send_batch(delta.batch)
         delta.batch = ConsumerMessageBatch()
         while not delta.empty():
             msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
+            etype = dict(msg.headers())["event_type"].decode()
+            if etype == "StateQueryResponse":
+                continue
             record = self.value_deserializer(msg)
-            print(dict(msg.headers())["event_type"].decode())
+            print(etype)
             for topic in record:
                 print("-", topic["topic_name"], topic["partitions"])
             event_type = (
@@ -244,24 +257,25 @@ class Controller:
             delta.prepare_batch(event_type, record)
             self.send_batch(delta.batch)
             delta.batch = ConsumerMessageBatch()
-        self.controller_consumer.commit()
-        self.persist_consumer_state()
+            self.controller_consumer.commit()
 
     def persist_consumer_state(self): 
         with open("/usr/src/data/consumer_group_state.json", "w") as f:
-            json.dump(self.next_assignment.to_json(), f)
-        self.consumer_list = self.next_assignment
+            json.dump(self.consumer_list.to_json(), f)
+
+    def clear_state_file(self): 
+        with open("/usr/src/data/consumer_group_state.json", "w") as f: 
+            json.dump(None, f)
+
 
     def load_consumer_state(self): 
         try: 
             with open("/usr/src/data/consumer_group_state.json", "r") as f: 
                 clist = json.load(f)
+                return clist
         except FileNotFoundError as e:
-            clist = []
-        current = ConsumerList()
-        current.from_json(clist)
-        self.consumer_list = current
-        self.consumer_list.pretty_print()
+            return None
+
 
     def send_batch(self, batch): 
         for consumer, cmessages in batch.items():
@@ -280,6 +294,58 @@ class Controller:
                     partition=consumer.consumer_id+1
                 )
         self.controller_producer.flush()
+
+    def active_consumers(self):
+        with ApiClient(self.kube_configuration) as api_client:
+            apps_v1_client = AppsV1Api(api_client)
+            deps = [dep.metadata.name
+                for dep in apps_v1_client.list_namespaced_deployment(
+                    "data-engineering-dev",
+                    label_selector="consumerGroup=de-consumer-group"
+                ).items
+            ]
+        return [int(re.search(r"\w+-\w+-(\d+)", cstr).group(1))-1
+            for cstr in deps
+        ]
+
+    def new_consumer_list(self, active_consumers: List[int]):
+        self.consumer_list = ConsumerList()
+        for c in active_consumers:
+            self.consumer_list.create_bin(c)
+        print(self.consumer_list)
+
+    def query_consumers(self, set_consumers: Set[DataConsumer]):
+        for c in set_consumers: 
+            print(f"sending a message to consumer with id: {c.consumer_id+1}")
+            self.controller_producer.produce(
+                "data-engineering-query", 
+                value="",
+                partition=c.consumer_id+1,
+                headers={
+                    "serializer": "",
+                    "event_type": "StateQuery"
+                }
+            )
+        self.controller_producer.flush()
+
+    def wait_queries_response(self, set_consumers):
+        while len(set_consumers):
+            msg = self.controller_consumer.poll(timeout=1.0)
+            if msg == None: 
+                continue
+            headers = dict(msg.headers())
+            if headers["event_type"].decode() != "StateQueryResponse":
+                continue
+            record = self.value_deserializer(msg)
+            idx = int(dict(msg.headers())["consumer_id"])
+            consumer = self.consumer_list[idx]
+            consumer.from_json(
+                assignment=record
+            )
+            if consumer in set_consumers:
+                set_consumers.remove(consumer)
+        self.controller_consumer.commit()
+        self.persist_consumer_state()
 
     def run(self): 
         while True:

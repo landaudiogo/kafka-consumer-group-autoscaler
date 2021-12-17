@@ -321,6 +321,11 @@ class ConsumerList(list):
         super().__init__(clist)
 
 
+    def add_consumer(self, consumer: DataConsumer): 
+        if self[consumer.consumer_id] != None: 
+            raise Exception()
+        self[consumer.consumer_id] = consumer
+
     def create_bin(self, idx: Optional[int] = None):
         """Creates a new consumer in the existing list.
 

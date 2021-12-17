@@ -146,28 +146,106 @@ class StateGroupManagement(State):
     def __init__(self, controller):
         super().__init__(controller)
         self.FINAL_GROUP_STATE = None
+        self.OUT_OF_SYNC = None
 
     def entry(self): 
         super().entry()
         self.FINAL_GROUP_STATE = False
+        self.OUT_OF_SYNC = False
 
     def exit(self):
         super().exit()
         self.FINAL_GROUP_STATE = None
+        self.OUT_OF_SYNC = None
 
     def group_reached_state(self): 
         if self.FINAL_GROUP_STATE == None:
             raise Exception()
         return self.FINAL_GROUP_STATE
 
+    def out_of_sync(self): 
+        if self.OUT_OF_SYNC == None:
+            raise Exception()
+        return self.OUT_OF_SYNC
+
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list 
         self.controller.create_consumers()
         self.controller.wait_deployments_ready()
-        self.controller.change_consumers_state(delta)
+        try:
+            self.controller.change_consumers_state(delta)
+        except Exception as e:
+            self.OUT_OF_SYNC = True
+            return
+        self.controller.consumer_list = self.controller.next_assignment
+        self.controller.persist_consumer_state()
         self.controller.delete_consumers()
         self.controller.consumer_list.pretty_print()
         self.FINAL_GROUP_STATE = True
+
+
+class StateInitialize(State): 
+    def __init__(self, controller):
+        super().__init__(controller)
+        self.HAS_PERSISTED_STATE = None
+
+    def entry(self): 
+        super().entry()
+
+    def exit(self):
+        super().exit()
+        self.HAS_PERSISTED_STATE = None
+
+    def persisted_state(self): 
+        if self.HAS_PERSISTED_STATE == None:
+            raise Exception()
+        return self.HAS_PERSISTED_STATE
+
+    def no_persisted_state(self): 
+        if self.HAS_PERSISTED_STATE == None:
+            raise Exception()
+        return not self.HAS_PERSISTED_STATE
+
+    def execute(self): 
+        clist = self.controller.load_consumer_state()
+        if clist == None: 
+            self.HAS_PERSISTED_STATE = False 
+        else:
+            current = ConsumerList()
+            current.from_json(clist)
+            self.controller.consumer_list = current
+            self.controller.consumer_list.pretty_print()
+            self.HAS_PERSISTED_STATE = True
+
+
+class StateSynchronize(State): 
+    def __init__(self, controller):
+        super().__init__(controller)
+        self.RECEIVED_QUERIES = None
+
+    def entry(self): 
+        super().entry()
+        self.RECEIVED_QUERIES = False
+
+    def exit(self):
+        super().exit()
+        self.RECEIVED_QUERIES = None
+
+    def synchronized(self): 
+        if self.RECEIVED_QUERIES == None:
+            raise Exception()
+        return self.RECEIVED_QUERIES
+
+    def execute(self): 
+        active_consumers = self.controller.active_consumers()
+        self.controller.new_consumer_list(active_consumers)
+        set_consumers = set(
+            c for c in self.controller.consumer_list if c != None
+        )
+        self.controller.query_consumers(set_consumers)
+        self.controller.wait_queries_response(set_consumers)
+        self.controller.persist_consumer_state()
+        self.RECEIVED_QUERIES = True
 
 
 class StateMachine:
