@@ -25,8 +25,8 @@ GCP_BUCKET = f'lost_events_{WRITE_ENV}'
 
 # KAFKA
 KAFKA = {
-    'prod': ['54.76.46.203:9092', '18.202.250.11:9092', '54.171.156.36:9092'],
-    'uat': ['52.213.38.208:9092']
+    'prod': ['prod1:9092', 'prod2:9092'],
+    'uat': ['uat:9092']
 }
 BROKERS = KAFKA[os.getenv('CONSUME_ENV')]
 CONSUMER_CONFIG = {

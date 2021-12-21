@@ -3,6 +3,8 @@ import functools
 import bisect
 
 from typing import List, Iterable, Union, Type, Optional
+from functools import cmp_to_key
+
 from config import CONSUMER_CAPACITY, ALGO_CAPACITY, DETopicMetadata
 
 
@@ -92,6 +94,12 @@ class TopicConsumer:
             partitions, 0
         )
 
+    @classmethod
+    def from_json(cls, topic): 
+        topic_name, plist = topic["topic_name"], topic["partitions"]
+        plist = [TopicPartitionConsumer(topic_name, p) for p in plist]
+        return cls(topic_name, plist)
+
     def update_partition_speed(self, partition, value):
         partition = self.partitions.get(partition) 
         if partition == None:
@@ -143,6 +151,15 @@ class TopicDictConsumer(dict):
         if headers != None:
             self.headers = headers
         super().__init__(kwargs)
+
+    @classmethod
+    def from_json(cls, assignment): 
+        d = {
+            topic["topic_name"]: TopicConsumer.from_json(topic)
+            for topic in assignment
+        }
+        return cls(**d)
+
 
     def __sub__(self, other):
         if not isinstance(other, TopicDictConsumer): 
@@ -221,6 +238,11 @@ class DataConsumer:
             self.assignment.values(), 0
         )
 
+    @classmethod
+    def from_json(cls, idx, assignment):
+        assignment = TopicDictConsumer.from_json(assignment)
+        return cls(idx, assignment)
+
     def __hash__(self):
         return hash(self.consumer_id)
 
@@ -286,17 +308,6 @@ class DataConsumer:
     def to_json(self): 
         return [topic.to_json() for topic in self.assignment.values()]
 
-    def from_json(self, assignment):
-        for topic in assignment:
-            self.assignment[topic["topic_name"]] = TopicConsumer(
-                topic["topic_name"], 
-                [
-                    TopicPartitionConsumer(topic["topic_name"], p)
-                    for p in topic["partitions"]
-                ]
-            )
-        return self
-
 
 class ConsumerList(list):
     """Mapping to keep track a list of consumers.
@@ -304,27 +315,41 @@ class ConsumerList(list):
     This class maintains the list's functionalities, and extends it's use to the
     specific use case of the list of consumers. 
     """
-
+    
 
     def __init__(self, clist: Optional[List[DataConsumer]] = None): 
         if clist == None: 
             clist = []
+        super().__init__()
         self.available_indices = []
         self.map_partition_consumer = {}
         self.last_created_bin = None
-        for i, c in enumerate(clist):
-            if c == None: 
-                self.available_indices.append(i)
-                continue
+        clist = [c for c in clist if c != None]
+        clist.sort(key=ConsumerList.idx_sort)
+        for c in clist:
+            self.create_bin(c.consumer_id)
             for tp in c.partitions():
-                self.map_partition_consumer[tp] = c
-        super().__init__(clist)
+                self.assign_partition_consumer(c.consumer_id, tp)
 
+    @classmethod
+    def from_json(cls, clist): 
+        clist = [
+            DataConsumer.from_json(i, c_assignment) 
+            for i, c_assignment in enumerate(clist)
+            if c_assignment != None
+        ]
+        return cls(clist)
 
-    def add_consumer(self, consumer: DataConsumer): 
-        if self[consumer.consumer_id] != None: 
-            raise Exception()
-        self[consumer.consumer_id] = consumer
+    @staticmethod
+    @cmp_to_key
+    def idx_sort(c1, c2): 
+        return c1.consumer_id - c2.consumer_id
+
+    def add_consumer(self, c: DataConsumer): 
+        self.create_bin(c.consumer_id)
+        c = self[c.consumer_id]
+        for tp in consumer.assignment():
+            self.assign_partition_consumer(c.consumer_id, tp)
 
     def create_bin(self, idx: Optional[int] = None):
         """Creates a new consumer in the existing list.
@@ -448,22 +473,6 @@ class ConsumerList(list):
             consumer.to_json() if consumer != None else None
             for consumer in self
         ]
-
-    def from_json(self, clist): 
-        clist = [
-            DataConsumer(i).from_json(c_assignment) 
-            if c_assignment != None else None
-            for i, c_assignment in enumerate(clist)
-        ]
-        print(clist)
-        for i, c in enumerate(clist):
-            if c == None: 
-                self.available_indices.append(i)
-                continue
-            for tp in c.partitions():
-                self.map_partition_consumer[tp] = c
-        super().__init__(clist)
-
 
 class Command:
     def __init__(

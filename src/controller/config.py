@@ -1,22 +1,22 @@
 import json
 
 MONITOR_CONSUMER_CONFIG = {
-    'bootstrap.servers': "52.213.38.208:9092", 
+    'bootstrap.servers': "uat:9092", 
     'group.id': "data-engineering-controller", 
     'auto.offset.reset': 'earliest',
 }
 
 CONTROLLER_CONSUMER_CONFIG = {
-    'bootstrap.servers': "52.213.38.208:9092", 
+    'bootstrap.servers': "uat:9092", 
     'group.id': "data-engineering-controller", 
     'auto.offset.reset': 'earliest',
 }
 
 ADMIN_CONFIG = {
-    'bootstrap.servers': "52.213.38.208:9092", 
+    'bootstrap.servers': "uat:9092", 
 }
 CONTROLLER_PRODUCER_CONFIG = {
-    'bootstrap.servers': '52.213.38.208:9092', 
+    'bootstrap.servers': 'uat:9092', 
     'client.id': 'controller-producer', 
 }
 

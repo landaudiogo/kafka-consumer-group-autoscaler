@@ -1,14 +1,1 @@
-kind: PersistentVolumeClaim
-apiVersion: v1
-metadata:
-  name: de-consumer-1-volume
-  namespace: data-engineering-dev
-  labels:
-    consumerGroup: de-consumer-group
-spec:
-  accessModes:
-  - ReadWriteOnce
-  storageClassName: pd-example
-  resources:
-    requests:
-      storage: 500Mi
+/home/landaudiogo/Repos/huub_landau/src/consumer/kubernetes-deployment/template-pvc.yml
