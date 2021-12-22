@@ -16,7 +16,8 @@ from kubernetes.client import (
 
 from config import (
     MONITOR_CONSUMER_CONFIG, CONTROLLER_CONSUMER_CONFIG, 
-    CONSUMER_CAPACITY, ADMIN_CONFIG, CONTROLLER_PRODUCER_CONFIG
+    CONSUMER_CAPACITY, ADMIN_CONFIG, CONTROLLER_PRODUCER_CONFIG, 
+    MAX_TIME_STATE_GM
 )
 from dstructures import (
     TopicPartitionConsumer, ConsumerList, DataConsumer, GroupManagement,
@@ -60,7 +61,6 @@ class Controller:
 
         self.value_deserializer = AvroDeserializer() 
         self.value_serializer = AvroSerializer(DEControllerSchema)
-
 
     def initialize_monitor_consumer(self): 
         earliest, latest = self.monitor_consumer.get_watermark_offsets(
@@ -238,7 +238,10 @@ class Controller:
         self.clear_state_file()
         self.send_batch(delta.batch)
         delta.batch = ConsumerMessageBatch()
+        start = time.time()
         while not delta.empty():
+            if time.time() - start > MAX_TIME_STATE_GM: 
+                raise Exception()
             msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
@@ -338,10 +341,11 @@ class Controller:
                 continue
             record = self.value_deserializer(msg)
             idx = int(dict(msg.headers())["consumer_id"])
+            for topic in record: 
+                for p in topic["partitions"]: 
+                    tp = TopicPartitionConsumer(topic["topic_name"], p)
+                    self.consumer_list.assign_partition_consumer(idx, tp)
             consumer = self.consumer_list[idx]
-            consumer.from_json(
-                assignment=record
-            )
             if consumer in set_consumers:
                 set_consumers.remove(consumer)
         self.controller_consumer.commit()
