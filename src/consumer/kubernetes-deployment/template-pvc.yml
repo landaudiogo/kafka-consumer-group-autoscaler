@@ -8,7 +8,7 @@ metadata:
 spec:
   accessModes:
   - ReadWriteOnce
-  storageClassName: pd-example
+  storageClassName: de-consumer-volume
   resources:
     requests:
       storage: 500Mi
