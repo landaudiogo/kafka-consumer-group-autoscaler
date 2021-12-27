@@ -2,13 +2,13 @@ import json
 
 MONITOR_CONSUMER_CONFIG = {
     'bootstrap.servers': "uat:9092", 
-    'group.id': "data-engineering-controller", 
+    'group.id': "data-engineering-autoscaler", 
     'auto.offset.reset': 'earliest',
 }
 
 CONTROLLER_CONSUMER_CONFIG = {
     'bootstrap.servers': "uat:9092", 
-    'group.id': "data-engineering-controller", 
+    'group.id': "data-engineering-autoscaler", 
     'auto.offset.reset': 'earliest',
 }
 
@@ -21,7 +21,7 @@ CONTROLLER_PRODUCER_CONFIG = {
 }
 
 MAX_TIME_S1 = 10
-MAX_TIME_STATE_GM = 60
+MAX_TIME_STATE_GM = 60*5
 CONSUMER_CAPACITY = 200
 ALGO_CAPACITY = 100
 

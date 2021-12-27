@@ -49,7 +49,7 @@ spec:
             - name: WRITE_ENV
               value: "uat"
             - name: GROUP_ID
-              value: "consumer_capacity_1"
+              value: "data-engineering-autoscaler"
             - name: BATCH_BYTES
               value: "5000000"
             - name: WAIT_TIME_SECS

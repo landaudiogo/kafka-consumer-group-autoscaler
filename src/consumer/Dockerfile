@@ -8,7 +8,7 @@ COPY . .
 
 ENV CONSUME_ENV='prod'
 ENV WRITE_ENV='uat'
-ENV GROUP_ID='consumer_capacity_1'
+ENV GROUP_ID='data-engineering-autoscaler'
 ENV BATCH_BYTES='5000000'
 ENV WAIT_TIME_SECS='1' 
 
