@@ -383,35 +383,34 @@ class DETopic:
         )
         if event_type in self.ignore_events:
             return None
-        with BytesIO(msg.value()) as stream:
-            try: 
-                return Row(
-                    msg.topic(), msg.partition(), msg.offset(),
-                    {
-                        'event_type': event_type,
-                        'event_json': json.dumps(
-                            self.deserialize_msg_value(msg)
-                        ),
-                        'stream_timestamp': (
-                            time.time_ns()
-                        ), 
-                        'stream_timestamp_hour': time.strftime(
-                            "%Y-%m-%d %H:00:00", 
-                            time.gmtime()
-                        ),
-                        'stream_timestamp_date': time.strftime(
-                            "%Y-%m-%d", 
-                            time.gmtime()
-                        ), 
-                    }, 
-                    self.table 
-                )
-            except Exception as e:
-                eprint(e)
-                eprint(f"=== Failed to deserialize message from "
-                       f"topic => {msg.topic()}, partition => {msg.partition()} "
-                       f"offset => {msg.offset()} ===")
-                raise e
+        try: 
+            return Row(
+                msg.topic(), msg.partition(), msg.offset(),
+                {
+                    'event_type': event_type,
+                    'event_json': json.dumps(
+                        self.deserialize_msg_value(msg)
+                    ),
+                    'stream_timestamp': (
+                        time.time_ns()
+                    ), 
+                    'stream_timestamp_hour': time.strftime(
+                        "%Y-%m-%d %H:00:00", 
+                        time.gmtime()
+                    ),
+                    'stream_timestamp_date': time.strftime(
+                        "%Y-%m-%d", 
+                        time.gmtime()
+                    ), 
+                }, 
+                self.table 
+            )
+        except Exception as e:
+            eprint(e)
+            eprint(f"=== Failed to deserialize message from "
+                   f"topic => {msg.topic()}, partition => {msg.partition()} "
+                   f"offset => {msg.offset()} ===")
+            raise e
 
     def __repr__(self): 
         return f"{list(self.partitions)}"

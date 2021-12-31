@@ -255,17 +255,31 @@ ControllerSchemaExample3 = [
     }
 ]
 
+AutoscalerTest = [
+    {
+        "topic_name": "autoscaler-test",
+        "topic_class": {
+            "module_path": "de_avro",
+            "class_name": "DETestV1Topic"
+        },
+        "partitions": [i for i in range(8)],
+        "bq_table": "delivery_events_temp",
+        "ignore_events": []
+    },
+]
+
+
 parsed_schema = fastavro.parse_schema(DEControllerSchema)
 
 print("=== Started Producer ===")
 producer_conf = {
-    'bootstrap.servers': '52.213.38.208:9092', 
+    'bootstrap.servers': 'uat:9092', 
     'client.id': 'new_producer', 
 }
 producer = Producer(producer_conf)
 
 with BytesIO() as stream:
-    fastavro.schemaless_writer(stream, parsed_schema, ControllerSchemaExample1)
+    fastavro.schemaless_writer(stream, parsed_schema, AutoscalerTest)
     producer.produce(
         "data-engineering-controller", stream.getvalue(),
         partition=1, 
