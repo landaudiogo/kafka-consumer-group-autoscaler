@@ -78,7 +78,7 @@ object Monitor {
             //val jsonString = Json(DefaultFormats).write(partitionBytes)
             //println(jsonString)
 
-            Thread.sleep(1000)
+            Thread.sleep(100)
         }
     }
 
