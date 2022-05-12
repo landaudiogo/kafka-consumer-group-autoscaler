@@ -2,6 +2,7 @@ import time
 import functools
 import logging
 import csv
+import os
 
 from typing import Callable
 from config import (
@@ -130,6 +131,62 @@ class StateSentinel(State):
         return f'=== StateSentinel {self.ITERATION} ==='
 
 
+class StateSentinelStep(State): 
+
+
+    def __init__(self, *args, **kwargs):
+        self.ITERATION = 0
+        super().__init__(*args, **kwargs)
+
+    def any_unassigned(self): 
+        return not (len(self.controller.unassigned_partitions) == 0)
+
+    def time_up(self):
+        return self.elapsed_time() > MAX_TIME_S1
+
+    def full_bin(self):
+        for c in self.controller.consumer_list: 
+            if c == None: 
+                continue
+            if (c.combined_speed > ALGO_CAPACITY) and (len(c.partitions()) > 1):
+                return True
+        return False
+            
+    def entry(self): 
+        super().entry()
+        self.controller.unassigned_partitions = []
+
+    def exit(self):
+        super().exit()
+        if self.controller.log_stopwatch.started("t1"): 
+            self.controller.log_stopwatch.toggle("t1")
+        self.ITERATION += 1
+
+    def execute(self): 
+        partition_speeds = self.controller.get_last_monitor_record()
+        if partition_speeds == None: 
+            return
+        for topic_name, p_speeds in partition_speeds.items(): 
+            for p_str, speed  in p_speeds.items():
+                speed = min(CONSUMER_CAPACITY, speed)
+                p_int = int(p_str)
+                if ((speed > 0) and (speed < ALGO_CAPACITY) and
+                    not self.controller.log_stopwatch.started("t1")
+                ): 
+                    self.controller.log_stopwatch.toggle("t1")
+
+                tp = TopicPartitionConsumer(topic_name, p_int)
+
+                consumer = self.controller.consumer_list.get_consumer(tp)
+                if consumer == None:
+                    tp.update_speed(speed)
+                    self.controller.unassigned_partitions.append(tp)
+                else:
+                    consumer.update_partition_speed(tp, speed)
+
+    def __repr__(self): 
+        return f'=== StateSentinel {self.ITERATION} ==='
+
 class StateSentinelFile(State): 
     """This state sentinel is used when the speed measurements are to be fetched
     from a file, instead of using the data-engineering-monitor topic.
@@ -138,7 +195,7 @@ class StateSentinelFile(State):
 
     def __init__(self, *args, **kwargs):
         generate_measurements(
-            5, 6, 1, 16, 0, 100, start_speed=None
+            5, 6, 1, 32, 0, 100, start_speed=None
         )
         self.file = next(file_generator())
         self.ITERATION = 0
@@ -147,6 +204,8 @@ class StateSentinelFile(State):
     def next_file(self): 
         logger.info("Terminated")
         clean_up_measurement_files()
+        print("Copy Files")
+        time.sleep(60*60*2)
         exit(0)
 
     def time_up(self):
@@ -277,6 +336,7 @@ class StateReassignAlgorithm(State):
     def entry(self): 
         super().entry()
         self.ALGORITHM_STATUS = False
+        self.controller.log_stopwatch.toggle("t2")
 
     def exit(self): 
         super().exit()
@@ -324,6 +384,7 @@ class StateReassignAlgorithmTest(State):
     def entry(self): 
         super().entry()
         self.ALGORITHM_STATUS = False
+        self.controller.log_stopwatch.toggle("t2")
 
     def exit(self): 
         super().exit()
@@ -375,8 +436,14 @@ class StateGroupManagement(State):
         try:
             delta = self.controller.next_assignment - self.controller.consumer_list 
             self.controller.create_consumers()
+            self.controller.log_stopwatch.toggle("t2")
+            self.controller.log_stopwatch.toggle("t3")
             self.controller.wait_deployments_ready()
+            self.controller.log_stopwatch.toggle("t3")
+            self.controller.log_stopwatch.toggle("t4")
             self.controller.change_consumers_state(delta)
+            self.controller.log_stopwatch.toggle("t4")
+            self.controller.log_stopwatch.commit()
         except Exception as e:
             raise e
             logger.error(str(e))
@@ -586,11 +653,16 @@ class StateMachine:
             self.change_state(sdest)
 
     def change_state(self, destination):
+        if (self.current_state == self.states["manage"]
+            and destination == self.states["sentinel"]
+        ): 
+            self.CYCLE += 1
+            print(f"Incrementing {self.CYCLE}")
+            self.controller.log_stopwatch.save_to_file("/usr/src/data/")
         self.current_state.exit()
         self.current_state = destination
         self.current_state.entry()
-        if self.current_state == self.states["sentinel"]: 
-            self.CYCLE += 1
+
 
     def initialize(self): 
         if self.initial == None: 
@@ -605,6 +677,8 @@ class StateMachine:
             return cls.create_test_controller_state_machine(controller)
         elif env == "test-algorithms": 
             return cls.create_test_algorithms_state_machine(controller)
+        elif env == "test-step": 
+            return cls.create_step_state_machine(controller)
         else: 
             return cls.create_controller_state_machine(controller)
 
@@ -612,7 +686,7 @@ class StateMachine:
     def create_controller_state_machine(cls, controller):
         synchronize = StateSynchronize(controller)
         sentinel = StateSentinel(controller)
-        reassign = StateReassignAlgorithm(controller, approximation_algorithm="mwfp")
+        reassign = StateReassignAlgorithm(controller, approximation_algorithm="mwf")
         manage = StateGroupManagement(controller)
         states = [
             ("synchronize", synchronize), 
@@ -686,4 +760,30 @@ class StateMachine:
         return state_machine
 
 
+    @classmethod
+    def create_step_state_machine(cls, controller):
+        synchronize = StateSynchronize(controller)
+        sentinel = StateSentinelStep(controller)
+        reassign = StateReassignAlgorithm(controller, approximation_algorithm="mwf")
+        manage = StateGroupManagement(controller)
+        states = [
+            ("synchronize", synchronize), 
+            ("sentinel", sentinel), 
+            ("reassign", reassign), 
+            ("manage", manage), 
+        ]
+        transitions = [
+            ("synchronize", "sentinel", synchronize.synchronized),
+            ("sentinel", "reassign", sentinel.time_up),
+            ("sentinel", "reassign", sentinel.full_bin),
+            ("sentinel", "reassign", sentinel.any_unassigned),
+            ("reassign", "manage", reassign.finished_approximation_algorithm),
+            ("manage", "sentinel", manage.group_reached_state),
+            ("manage", "synchronize", manage.out_of_sync),
+        ]
+        state_machine = cls(
+            controller, states=states, transitions=transitions
+        )
+        state_machine.set_initial("synchronize")
+        return state_machine
 

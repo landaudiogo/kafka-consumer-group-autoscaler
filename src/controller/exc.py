@@ -30,3 +30,12 @@ class UndefinedAlgorithm(Exception):
 
 class NoMoreFiles(Exception): 
     pass
+
+class StopwatchExists(Exception): 
+    pass
+
+class MissingStopwatch(Exception): 
+    pass
+
+class StopwatchTerminated(Exception): 
+    pass

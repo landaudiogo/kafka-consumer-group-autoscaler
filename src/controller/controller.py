@@ -27,10 +27,11 @@ from dstructures import (
 from state_machine import StateMachine
 from de_avro import DEControllerSchema
 from exc import StopMeasurementIteration
+from utilities import LogStopwatch
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class Controller: 
@@ -64,6 +65,7 @@ class Controller:
         self.value_serializer = AvroSerializer(DEControllerSchema)
 
         self.test_speeds = None
+        self.log_stopwatch = LogStopwatch()
 
     def initialize_monitor_consumer(self): 
         earliest, latest = self.monitor_consumer.get_watermark_offsets(
