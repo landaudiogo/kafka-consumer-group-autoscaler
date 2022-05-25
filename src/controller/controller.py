@@ -4,9 +4,11 @@ import json
 import copy
 import yaml
 import fastavro
+import re
+import logging
 
 from io import BytesIO
-from typing import Tuple, List
+from typing import Tuple, List, Set
 from confluent_kafka import Consumer, TopicPartition, Producer
 from confluent_kafka.admin import AdminClient, ConfigResource, NewPartitions
 from kubernetes.client import (
@@ -15,18 +17,21 @@ from kubernetes.client import (
 
 from config import (
     MONITOR_CONSUMER_CONFIG, CONTROLLER_CONSUMER_CONFIG, 
-    CONSUMER_CAPACITY, ADMIN_CONFIG, CONTROLLER_PRODUCER_CONFIG
+    CONSUMER_CAPACITY, ADMIN_CONFIG, CONTROLLER_PRODUCER_CONFIG, 
+    MAX_TIME_STATE_GM, CONTROLLER_ENV
 )
 from dstructures import (
     TopicPartitionConsumer, ConsumerList, DataConsumer, GroupManagement,
     StopEvent, StartEvent, ConsumerMessageBatch
 )
-from state_machine import (
-    StateMachine, StateSentinel, StateReassignAlgorithm, StateGroupManagement,
-    State
-)
+from state_machine import StateMachine
 from de_avro import DEControllerSchema
+from exc import StopMeasurementIteration
+from utilities import LogStopwatch
 
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Controller: 
@@ -44,11 +49,10 @@ class Controller:
         self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
         self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
 
-        self.state_machine = self.create_controller_state_machine()
-        self.state_machine.set_initial("s1")
+        self.state_machine = StateMachine.factory_method(self, CONTROLLER_ENV)
 
         self.unassigned_partitions = []
-        self.consumer_list = None
+        self.consumer_list = ConsumerList()
         self.load_consumer_state()
         self.next_assignment = None
 
@@ -60,6 +64,8 @@ class Controller:
         self.value_deserializer = AvroDeserializer() 
         self.value_serializer = AvroSerializer(DEControllerSchema)
 
+        self.test_speeds = None
+        self.log_stopwatch = LogStopwatch()
 
     def initialize_monitor_consumer(self): 
         earliest, latest = self.monitor_consumer.get_watermark_offsets(
@@ -76,29 +82,6 @@ class Controller:
                 break
             time.sleep(0.01)
 
-
-    def create_controller_state_machine(self): 
-        s1 = StateSentinel(self)
-        s2 = StateReassignAlgorithm(self, approximation_algorithm="mwf")
-        s3 = StateGroupManagement(self)
-        s4 = State(self)
-        states = [
-            ("s1", s1), 
-            ("s2", s2), 
-            ("s3", s3),
-            ("s4", s4),
-        ]
-        transitions = [
-            ("s1", "s2", s1.time_up),
-            ("s1", "s2", s1.full_bin),
-            ("s1", "s2", s1.any_unassigned),
-            ("s2", "s3", s2.finished_approximation_algorithm),
-            ("s3", "s1", s3.group_reached_state),
-        ]
-        return StateMachine(
-            self, states=states, transitions=transitions
-        )
-
     def load_kube_data(self):
         configuration = Configuration()
         with open('kubernetes-cluster/token', 'r') as f_token, \
@@ -114,6 +97,17 @@ class Controller:
         configuration.host = f"https://{cluster_ip}"
         configuration.ssl_ca_cert = 'kubernetes-cluster/cluster.ca'
         self.kube_configuration = configuration
+
+    def get_file_measurement(self, file): 
+        if self.test_speeds == None: 
+            with open(f"test/monitor_sequence/{file}", "r") as f:
+                self.test_speeds = json.load(f)
+        idx = self.state_machine.CYCLE
+        if idx >= len(self.test_speeds):
+            self.test_speeds = None
+            self.state_machine.CYCLE = 0
+            raise StopMeasurementIteration()
+        return self.test_speeds[idx]
 
     def get_last_monitor_record(self): 
         start_off, next_off = self.monitor_consumer.get_watermark_offsets(
@@ -138,12 +132,12 @@ class Controller:
         d = self.de_controller_metadata.list_topics(topic)
         return len(d.topics[topic].partitions)
 
-    def create_partitions(self, total_partitions): 
+    def create_partitions(self, total_partitions, topic="data-engineering-controller"): 
         future = self.kafka_cluster_admin.create_partitions([
-            NewPartitions("data-engineering-controller", total_partitions)
-        ]).get("data-engineering-controller")
+            NewPartitions(topic, total_partitions)
+        ]).get(topic)
         if future.result() == None: 
-            print(f"data-engineering-controller has now {total_partitions} partitions")
+            logger.info(f"{topic} has now {total_partitions} partitions")
 
     def change_template_deployment(self, deployment_id): 
         body = copy.deepcopy(self.template_deployment)
@@ -175,6 +169,8 @@ class Controller:
             
             if self.get_num_partitions() < (len(self.next_assignment) + 10):
                 self.create_partitions(len(self.next_assignment) + 10)
+            if self.get_num_partitions(topic="data-engineering-query") < (len(self.next_assignment) + 10):
+                self.create_partitions(len(self.next_assignment) + 10, topic="data-engineering-query")
 
             active_deps = set(
                 f"de-consumer-{c.consumer_id+1}"
@@ -189,14 +185,17 @@ class Controller:
                     core_v1_client.create_namespaced_persistent_volume_claim("data-engineering-dev", pvc)
                 dep = self.change_template_deployment(dep_id)
                 apps_v1_client.create_namespaced_deployment("data-engineering-dev", dep)
-                print(f"created consumer with id {dep_id}")
+                logger.info(f"created consumer with id {dep_id}")
 
     def delete_consumers(self):
         with ApiClient(self.kube_configuration) as api_client:
             apps_v1_client = AppsV1Api(api_client)
             existing_deployments = set(
                 dep.metadata.name
-                for dep in apps_v1_client.list_namespaced_deployment("data-engineering-dev").items
+                for dep in
+                apps_v1_client.list_namespaced_deployment(
+                    "data-engineering-dev", label_selector="consumerGroup=de-consumer-group"
+                ).items
             )
             active_deps = set(
                 f"de-consumer-{c.consumer_id+1}"
@@ -205,7 +204,7 @@ class Controller:
             consumers_delete = existing_deployments - active_deps
             for consumer in consumers_delete:
                 apps_v1_client.delete_namespaced_deployment(consumer, "data-engineering-dev")
-                print(f"removed consumer with id {consumer}")
+                logger.info(f"removed consumer with id {consumer}")
 
     def wait_deployments_ready(self): 
         clist_set = set(
@@ -226,16 +225,23 @@ class Controller:
                 time.sleep(0.5)
 
     def change_consumers_state(self, delta: GroupManagement):
+        self.clear_state_file()
         self.send_batch(delta.batch)
         delta.batch = ConsumerMessageBatch()
+        start = time.time()
         while not delta.empty():
+            if time.time() - start > MAX_TIME_STATE_GM: 
+                raise Exception()
             msg = self.controller_consumer.poll(timeout=1.0)
             if msg == None: 
                 continue
+            etype = dict(msg.headers())["event_type"].decode()
+            if etype == "StateQueryResponse":
+                continue
             record = self.value_deserializer(msg)
-            print(dict(msg.headers())["event_type"].decode())
+            logger.debug(etype)
             for topic in record:
-                print("-", topic["topic_name"], topic["partitions"])
+                logger.debug(f'- {topic["topic_name"]} {topic["partitions"]}')
             event_type = (
                 StartEvent
                 if dict(msg.headers())["event_type"].decode() == "StartConsumingEvent"
@@ -244,34 +250,35 @@ class Controller:
             delta.prepare_batch(event_type, record)
             self.send_batch(delta.batch)
             delta.batch = ConsumerMessageBatch()
-        self.controller_consumer.commit()
-        self.persist_consumer_state()
+            self.controller_consumer.commit()
 
     def persist_consumer_state(self): 
         with open("/usr/src/data/consumer_group_state.json", "w") as f:
-            json.dump(self.next_assignment.to_json(), f)
-        self.consumer_list = self.next_assignment
+            json.dump(self.consumer_list.to_json(), f)
+
+    def clear_state_file(self): 
+        with open("/usr/src/data/consumer_group_state.json", "w") as f: 
+            json.dump(None, f)
+
 
     def load_consumer_state(self): 
         try: 
             with open("/usr/src/data/consumer_group_state.json", "r") as f: 
                 clist = json.load(f)
+                return clist
         except FileNotFoundError as e:
-            clist = []
-        current = ConsumerList()
-        current.from_json(clist)
-        self.consumer_list = current
-        self.consumer_list.pretty_print()
+            return None
+
 
     def send_batch(self, batch): 
         for consumer, cmessages in batch.items():
-            print("Consumer =>", consumer)
+            logger.debug(f"Consumer => {consumer.consumer_id+1}")
             for record in cmessages.to_record_list():
                 if record["payload"] == []:
                     continue
-                print(record["headers"]["event_type"])
+                logger.debug(record["headers"]["event_type"])
                 for topic in record["payload"]:
-                    print("-", topic["topic_name"], topic["partitions"])
+                    logger.debug(f'- {topic["topic_name"]} {topic["partitions"]}')
                 avro_record = self.value_serializer(record["payload"])
                 self.controller_producer.produce(
                     "data-engineering-controller",
@@ -280,6 +287,51 @@ class Controller:
                     partition=consumer.consumer_id+1
                 )
         self.controller_producer.flush()
+
+    def active_consumers(self):
+        with ApiClient(self.kube_configuration) as api_client:
+            apps_v1_client = AppsV1Api(api_client)
+            deps = [dep.metadata.name
+                for dep in apps_v1_client.list_namespaced_deployment(
+                    "data-engineering-dev",
+                    label_selector="consumerGroup=de-consumer-group"
+                ).items
+            ]
+        return {DataConsumer(int(re.search(r"\w+-\w+-(\d+)", cstr).group(1))-1)
+            for cstr in deps
+        }
+
+    def query_consumers(self, set_consumers: Set[DataConsumer]):
+        for c in set_consumers: 
+            logger.debug(f"sending a message to consumer with id: {c.consumer_id+1}")
+            self.controller_producer.produce(
+                "data-engineering-query", 
+                value="",
+                partition=c.consumer_id+1,
+                headers={
+                    "serializer": "",
+                    "event_type": "StateQuery"
+                }
+            )
+        self.controller_producer.flush()
+
+    def wait_queries_response(self, set_consumers):
+        self.consumer_list = ConsumerList()
+        while len(set_consumers):
+            msg = self.controller_consumer.poll(timeout=1.0)
+            if msg == None: 
+                continue
+            headers = dict(msg.headers())
+            if headers["event_type"].decode() != "StateQueryResponse":
+                continue
+            record = self.value_deserializer(msg)
+            idx = int(dict(msg.headers())["consumer_id"])
+            consumer = DataConsumer.from_json(idx, record)
+            self.consumer_list.add_consumer(consumer)
+            if consumer in set_consumers:
+                set_consumers.remove(consumer)
+        self.controller_consumer.commit()
+        self.persist_consumer_state()
 
     def run(self): 
         while True:

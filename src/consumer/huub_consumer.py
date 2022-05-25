@@ -108,11 +108,17 @@ class DEConsumer(Consumer):
 
     def consume_metadata(self):
         list_obj = self.metadata_consumer.consume()
+        STATE_QUERY_FLAG = False
         for obj in list_obj: 
+            if isinstance(obj, StateQuery): 
+                STATE_QUERY_FLAG = True
+                continue
             self.change_state_queue.put(obj)
         self.process_state_queue()
         self.persist_metadata()
         self.metadata_consumer.commit()
+        if STATE_QUERY_FLAG:
+            self.metadata_consumer.send_state(self.current_assignment)
 
     def persist_metadata(self): 
         with open("/usr/src/data/consumer_metadata.json", "w") as f:
@@ -138,8 +144,14 @@ class DEConsumer(Consumer):
     def __enter__(self):
         self.metadata_consumer = DEMetadataConsumer(
             {**METADATA_CONF, "value.deserializer": AvroDeserializer()}, 
-            [TopicPartition(topic="data-engineering-controller", partition=POD_ID)],
-            ChangeStateEvent
+            [
+                TopicPartition(topic="data-engineering-controller", partition=POD_ID),
+                TopicPartition(topic="data-engineering-query", partition=POD_ID)
+            ],
+            {
+                "de_avro.DEControllerSchema": ChangeStateEvent, 
+                "": StateQuery
+            }
         )
         return self
 
@@ -155,12 +167,12 @@ class DEMetadataConsumer(Consumer):
         self, 
         config: Dict, 
         list_topic_partition: List[TopicPartition],
-        obj_from_msg: object
+        obj_from_msg_dict: dict
     ):
         self.conf_copy = config.copy()
         self.value_deserializer = self.conf_copy.pop("value.deserializer")
         super().__init__(self.conf_copy)
-        self.obj_from_msg = obj_from_msg
+        self.obj_from_msg_dict = obj_from_msg_dict
         self.assign(list_topic_partition)
 
         self.metadata_producer = Producer(METADATA_PRODUCER)
@@ -197,21 +209,41 @@ class DEMetadataConsumer(Consumer):
         dict_topic_obj has as key the topic's name and as value the objects
         created from the messages deserialized from the topic.
         """
+
+        def verify_end_queues(metadata_offsets, metadata_committed, positions):
+            for (
+                (earliest, latest), commit, pos
+            ) in zip(metadata_offsets, metadata_committed, positions):
+                if (
+                    (earliest != latest) and 
+                    (commit != latest) and 
+                    (pos != latest)
+                ):
+                    return True
+            return False
+
         list_obj = []
+        assignment = self.assignment()
+        metadata_offsets = [self.get_watermark_offsets(tp) for tp in assignment]
+        metadata_committed = [tp.offset for tp in self.committed(assignment)]
 
-        earliest, latest = self.get_watermark_offsets(self.assignment()[0])
-        committed = self.committed(self.assignment())[0].offset
-
-        while (
-            (earliest != latest) and (committed != latest)
-            and (self.position(self.assignment())[0].offset != latest)
-        ):
+        while (verify_end_queues(
+            metadata_offsets, 
+            metadata_committed, 
+            [tp.offset for tp in self.position(assignment)]
+        )):
             msg = self.poll(timeout=0.01)
             if msg is None: 
+                time.sleep(3)
                 continue
             if msg.error() == None: 
                 msg_deserialized = self.value_deserializer(msg)
-                obj = self.obj_from_msg(headers=dict(msg.headers()), value=msg_deserialized)
+                schema = dict(msg.headers())["serializer"].decode()
+                obj_cls = self.obj_from_msg_dict[schema]
+                obj = obj_cls(
+                    headers=dict(msg.headers()), value=msg_deserialized
+                )
+                print(obj)
                 list_obj.append(obj)
         return list_obj
 
@@ -248,6 +280,20 @@ class DEMetadataConsumer(Consumer):
     def parse_record(self, record):
         pass
 
+    def send_state(self, assignment): 
+        parsed_record = self.value_serializer(assignment.to_record())
+        print(parsed_record)
+        self.metadata_producer.produce(
+            "data-engineering-controller", 
+            value=parsed_record,
+            headers={
+                "event_type": "StateQueryResponse",
+                "serializer": "de_avro.DEControllerSchema",
+                "consumer_id": str(POD_ID-1),
+            },
+            partition=0,
+        )
+        self.metadata_producer.flush()
 
 
 class AvroDeserializer:
@@ -258,6 +304,12 @@ class AvroDeserializer:
 
     def __call__(self, msg) -> dict:
         serializer = dict(msg.headers())["serializer"].decode()
+        if (serializer == ""):
+            etype = dict(msg.headers())["event_type"].decode()
+            if etype == "StateQuery":
+                return None
+            else: 
+                raise Exception()
 
         writer_schema = self.__writer_schemas.get(serializer)
         if writer_schema == None:
@@ -290,6 +342,7 @@ class AvroSerializer:
 
 
 class DETopic:
+
 
     def __init__(self, **kwargs):
         """
@@ -330,35 +383,34 @@ class DETopic:
         )
         if event_type in self.ignore_events:
             return None
-        with BytesIO(msg.value()) as stream:
-            try: 
-                return Row(
-                    msg.topic(), msg.partition(), msg.offset(),
-                    {
-                        'event_type': event_type,
-                        'event_json': json.dumps(
-                            self.deserialize_msg_value(msg)
-                        ),
-                        'stream_timestamp': (
-                            time.time_ns()
-                        ), 
-                        'stream_timestamp_hour': time.strftime(
-                            "%Y-%m-%d %H:00:00", 
-                            time.gmtime()
-                        ),
-                        'stream_timestamp_date': time.strftime(
-                            "%Y-%m-%d", 
-                            time.gmtime()
-                        ), 
-                    }, 
-                    self.table 
-                )
-            except Exception as e:
-                eprint(e)
-                eprint(f"=== Failed to deserialize message from "
-                       f"topic => {msg.topic()}, partition => {msg.partition()} "
-                       f"offset => {msg.offset()} ===")
-                raise e
+        try: 
+            return Row(
+                msg.topic(), msg.partition(), msg.offset(),
+                {
+                    'event_type': event_type,
+                    'event_json': json.dumps(
+                        self.deserialize_msg_value(msg)
+                    ),
+                    'stream_timestamp': (
+                        time.time_ns()
+                    ), 
+                    'stream_timestamp_hour': time.strftime(
+                        "%Y-%m-%d %H:00:00", 
+                        time.gmtime()
+                    ),
+                    'stream_timestamp_date': time.strftime(
+                        "%Y-%m-%d", 
+                        time.gmtime()
+                    ), 
+                }, 
+                self.table 
+            )
+        except Exception as e:
+            eprint(e)
+            eprint(f"=== Failed to deserialize message from "
+                   f"topic => {msg.topic()}, partition => {msg.partition()} "
+                   f"offset => {msg.offset()} ===")
+            raise e
 
     def __repr__(self): 
         return f"{list(self.partitions)}"
@@ -456,6 +508,13 @@ class ChangeStateEvent(DETopicDict):
             tpartitions["topic_name"]: DETopic(**tpartitions)
             for tpartitions in value
         })
+
+
+class StateQuery():
+
+
+    def __init__(self, **kwargs):
+        pass
 
 
 class SerializationError(Exception): 

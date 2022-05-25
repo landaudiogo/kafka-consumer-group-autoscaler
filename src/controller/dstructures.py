@@ -1,10 +1,20 @@
 import itertools
 import functools
 import bisect
+import logging
+import sys
 
 from typing import List, Iterable, Union, Type, Optional
-from config import CONSUMER_CAPACITY, ALGO_CAPACITY, DETopicMetadata
+from functools import cmp_to_key
 
+from config import CONSUMER_CAPACITY, ALGO_CAPACITY, DETopicMetadata
+from exc import (
+    ConsumerAlreadyExists, InvalidRange, ParameterException
+)
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 @functools.total_ordering
@@ -92,6 +102,12 @@ class TopicConsumer:
             partitions, 0
         )
 
+    @classmethod
+    def from_json(cls, topic): 
+        topic_name, plist = topic["topic_name"], topic["partitions"]
+        plist = [TopicPartitionConsumer(topic_name, p) for p in plist]
+        return cls(topic_name, plist)
+
     def update_partition_speed(self, partition, value):
         partition = self.partitions.get(partition) 
         if partition == None:
@@ -143,6 +159,15 @@ class TopicDictConsumer(dict):
         if headers != None:
             self.headers = headers
         super().__init__(kwargs)
+
+    @classmethod
+    def from_json(cls, assignment): 
+        d = {
+            topic["topic_name"]: TopicConsumer.from_json(topic)
+            for topic in assignment
+        }
+        return cls(**d)
+
 
     def __sub__(self, other):
         if not isinstance(other, TopicDictConsumer): 
@@ -221,6 +246,16 @@ class DataConsumer:
             self.assignment.values(), 0
         )
 
+    @classmethod
+    def from_json(cls, idx, assignment):
+        assignment = TopicDictConsumer.from_json(assignment)
+        return cls(idx, assignment=assignment)
+
+    @staticmethod
+    @cmp_to_key
+    def idx_sort(c1, c2): 
+        return c1.biggest_speed() - c2.biggest_speed()
+
     def __hash__(self):
         return hash(self.consumer_id)
 
@@ -275,8 +310,8 @@ class DataConsumer:
 
     def pretty_print(self): 
         for topic in self.assignment.values(): 
-            print("-", topic.topic_name, topic.partitions)
-        print("-", self.combined_speed)
+            logger.debug(f"- {topic.topic_name}: {topic.partitions}")
+        logger.debug(f"- {self.combined_speed}")
 
     def __sub__(self, other):
         if self.consumer_id != other.consumer_id: 
@@ -286,17 +321,6 @@ class DataConsumer:
     def to_json(self): 
         return [topic.to_json() for topic in self.assignment.values()]
 
-    def from_json(self, assignment):
-        for topic in assignment:
-            self.assignment[topic["topic_name"]] = TopicConsumer(
-                topic["topic_name"], 
-                [
-                    TopicPartitionConsumer(topic["topic_name"], p)
-                    for p in topic["partitions"]
-                ]
-            )
-        return self
-
 
 class ConsumerList(list):
     """Mapping to keep track a list of consumers.
@@ -304,89 +328,107 @@ class ConsumerList(list):
     This class maintains the list's functionalities, and extends it's use to the
     specific use case of the list of consumers. 
     """
-
+    
 
     def __init__(self, clist: Optional[List[DataConsumer]] = None): 
         if clist == None: 
             clist = []
+        super().__init__()
         self.available_indices = []
         self.map_partition_consumer = {}
         self.last_created_bin = None
-        for i, c in enumerate(clist):
-            if c == None: 
-                self.available_indices.append(i)
-                continue
-            for tp in c.partitions():
-                self.map_partition_consumer[tp] = c
-        super().__init__(clist)
+        clist = [c for c in clist if c != None]
+        clist.sort(key=ConsumerList.idx_sort)
+        for c in clist:
+            self.add_consumer(c)
 
+    @classmethod
+    def from_json(cls, clist): 
+        clist = [
+            DataConsumer.from_json(i, c_assignment) 
+            for i, c_assignment in enumerate(clist)
+            if c_assignment != None
+        ]
+        return cls(clist)
 
-    def create_bin(self, idx: Optional[int] = None):
+    @staticmethod
+    @cmp_to_key
+    def idx_sort(c1, c2): 
+        return c1.consumer_id - c2.consumer_id
+
+    def create_bin(
+        self, 
+        idx: Optional[int] = None, 
+        consumer: Optional[DataConsumer] = None
+    ):
         """Creates a new consumer in the existing list.
 
         If the idx is provided, the consumer will be created at that index. In
         the case the idx provided exceeds the current size of the list, the
         elements in between the last element and idx are assigned None. 
 
+        idx and consumer are mutually exclusive parameters. idx creates a
+        consumer with no assignment, whereas consumer provides the consumer
+        which will be referenced in its idx.
+
         Args: 
             idx: index at which the consumer is to be created
-
+            consumer: consumer ref to put in the idx
         Returns: 
             None
 
         Raises: 
         """
-        last_idx = len(self) - 1
+        if None not in (consumer, idx):
+            raise ParameterException()
+        if idx == None:
+            idx = (consumer.consumer_id if consumer != None else None)
+
         if idx == None: 
-            if len(self.available_indices): 
-                lowest_idx = self.available_indices[0]
-                self[lowest_idx] = DataConsumer(lowest_idx)
-                self.last_created_bin = self[lowest_idx]
-                return self.available_indices.pop(0)
-            else: 
-                self.append(DataConsumer(last_idx+1))
-                self.last_created_bin = self[last_idx+1]
-                return last_idx+1
+            # make space consumer
+            lowest_idx = (self.available_indices[0]
+                if len(self.available_indices)
+                else len(self) 
+            )
+            self.add_consumer(DataConsumer(lowest_idx))
+            return lowest_idx
         else:
-            if (idx < 0): 
-                raise Exception()
-            if (idx > last_idx): 
-                for i in range(idx-last_idx-1): 
-                    self.append(None)
-                    self.available_indices.append(last_idx+i+1)
-                self.append(DataConsumer(idx))
-            else:
-                if (self[idx] != None): 
-                    raise Exception()
-                pos = bisect.bisect_left(self.available_indices, idx)
-                if ((pos == len(self.available_indices))
-                    or (self.available_indices[pos] != idx) 
-                ):
-                    raise Exception()
-                self[idx] = DataConsumer(idx)
-                self.available_indices.pop(pos)
-            self.last_created_bin = self[idx]
+            if idx < 0: 
+                raise InvalidRange("Index has to be >= 0")
+            consumer = consumer if consumer != None else DataConsumer(idx)
+            self.add_consumer(consumer)
             return idx
 
-    def get_idx(self, idx: int): 
-        if (-1*len(self) <= idx < len(self)): 
-            return self[idx]
-        return None
+    def make_space_consumer(self, idx): 
+        """Increase the ConsumerList size to include idx."""
+        last_idx = len(self)-1
+        for i in range(max(idx-last_idx, 0)): 
+            self.append(None)
+            self.available_indices.append(last_idx+(i+1))
+    
+    def add_consumer(self, consumer: DataConsumer): 
+        """Add consumer to the calling consumer list"""
+        idx = consumer.consumer_id
+        self.make_space_consumer(idx)
+        pos = bisect.bisect_left(self.available_indices, idx)
+        if ((pos == len(self.available_indices))
+            or (self.available_indices[pos] != idx) 
+        ):
+            raise ConsumerAlreadyExists()
+        self.available_indices.pop(pos)
+        if self[idx] != None: 
+            raise ConsumerAlreadyExists()
+        self[idx] = consumer
+        for p in consumer.partitions(): 
+            self.map_partition_consumer[p] = consumer
+        self.last_created_bin = self[idx] 
 
     def remove_bin(self, idx: int): 
-        last_idx = len(self) - 1
-        if ((idx > last_idx) or (idx < 0)) or (self[idx] == None): 
-            raise Exception()
-        if idx == last_idx: 
-            self.pop(-1)
-            while(len(self) and (self[-1] == None)): 
-                self.pop(-1)
-                self.available_indices.pop(-1)
-        else:
-            self[idx] = None
-            bisect.insort(self.available_indices, idx)
+        """Remove a bin from the calling consumer list."""
+        pass
 
     def assign_partition_consumer(self, idx, tp): 
+        """Assign partition to the consumer in index idx."""
         if((idx >= len(self)) or (idx < -len(self))): 
             raise Exception()
         if(self[idx] == None): 
@@ -394,37 +436,44 @@ class ConsumerList(list):
         self[idx].add_partition(tp)
         self.map_partition_consumer[tp] = self[idx]
 
+    def get_idx(self, idx: int): 
+        """Return the consumer in index idx or None if it doesn't exist."""
+        if (-1*len(self) <= idx < len(self)): 
+            return self[idx]
+        return None
+
     def get_consumer(self, tp: TopicPartitionConsumer):
+        """Return the consumer that is assigned the partition tp."""
         return self.map_partition_consumer.get(tp)
 
     def __sub__(self, other): 
+        """Compute the difference between two consumer list instances.
+
+        The difference returns a delta of the actions that have to be performed
+        by each consumer to reach the intended state. 
+        """
         if not isinstance(other, ConsumerList): 
             raise Exception()
         gm = GroupManagement()
         for i, (final, current) in enumerate(itertools.zip_longest(self, other)):
             if (final, current) == (None, None): 
                 continue
-            if final == None: 
-                final = DataConsumer(i)
-            if current == None: 
-                current = DataConsumer(i)
-            start = final - current
-            stop = current - final
-            for partition in start.partitions():
-                action = StartCommand(final, partition)
-                gm.add_action(action)
-            for partition in stop.partitions():
-                action = StopCommand(final, partition)
-                gm.add_action(action)
+            final = final if final != None else DataConsumer(i)
+            current = current if current != None else DataConsumer(i)
+            gm.consumer_difference(current, final)
+        self.generate_active_consumers()
+        return gm
+
+    def generate_active_consumers(self): 
         active_consumers = set(c for c in self if c != None) 
         if len(self.available_indices):
             fail_safe = set([DataConsumer(self.available_indices[0])])
         else: 
             fail_safe = set([DataConsumer(len(self))])
         self.active_consumers = active_consumers | fail_safe
-        return gm
 
     def partitions(self):
+        """Return all partitions assigned to the consumer list."""
         all_partitions = PartitionSet()
         for c in self:
             if c == None:
@@ -435,7 +484,7 @@ class ConsumerList(list):
     def pretty_print(self): 
         for consumer in self:
             if consumer != None:
-                print("{", consumer.consumer_id+1, "}")
+                logger.debug(f"{ {consumer.consumer_id+1} }")
                 consumer.pretty_print()
 
     def to_json(self): 
@@ -443,21 +492,6 @@ class ConsumerList(list):
             consumer.to_json() if consumer != None else None
             for consumer in self
         ]
-
-    def from_json(self, clist): 
-        clist = [
-            DataConsumer(i).from_json(c_assignment) 
-            if c_assignment != None else None
-            for i, c_assignment in enumerate(clist)
-        ]
-        print(clist)
-        for i, c in enumerate(clist):
-            if c == None: 
-                self.available_indices.append(i)
-                continue
-            for tp in c.partitions():
-                self.map_partition_consumer[tp] = c
-        super().__init__(clist)
 
 
 class Command:
@@ -591,6 +625,16 @@ class GroupManagement:
 
         if p_actions.empty(): 
             self.map_partition_actions.pop(partition)
+
+    def consumer_difference(self, current, final): 
+        start = final - current
+        stop = current - final
+        for partition in start.partitions():
+            action = StartCommand(final, partition)
+            self.add_action(action)
+        for partition in stop.partitions():
+            action = StopCommand(final, partition)
+            self.add_action(action)
 
     def prepare_batch(self, event_type: Type[Event], record):
         for topic_partitions in record:

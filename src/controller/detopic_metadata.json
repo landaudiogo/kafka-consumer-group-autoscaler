@@ -16,5 +16,14 @@
       "class_name": "DeliveryEventsV7Topic"
     },
     "ignore_events": []
+  }, 
+  "autoscaler-test": {
+    "topic_name": "autoscaler-test", 
+    "bq_table": "delivery_events_temp",
+    "topic_class": {
+      "module_path": "de_avro",
+      "class_name": "DETestV1Topic"
+    },
+    "ignore_events": []
   }
 }

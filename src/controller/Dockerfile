@@ -7,4 +7,8 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
+ENV CONTROLLER_ENV=''
+ENV GENERAL_LOGGER_LEVEL='INFO'
+ENV STATE_MACHINE_LOGGER_LEVEL='DEBUG'
+
 ENTRYPOINT ["python3", "main.py"]

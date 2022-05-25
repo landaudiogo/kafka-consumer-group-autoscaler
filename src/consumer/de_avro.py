@@ -1,3 +1,5 @@
+import json
+
 TopicPartitionsSchema = {
     "name": "TopicPartition",
     "type": "record",
@@ -43,3 +45,23 @@ DEControllerSchema = {
     "type": "array",
     "items": TopicPartitionsSchema
 }
+
+
+
+class DummyItem: 
+
+
+    def __init__(self, d): 
+        self.d = d
+
+    def _asdict(self):
+        print(self.d)
+        return self.d 
+
+
+class DETestV1Topic: 
+
+
+    def deserialize(self, stream, item_type_name): 
+        received_dict = json.loads(stream.getvalue())
+        return DummyItem(received_dict)

@@ -1,8 +1,9 @@
+import random
+
 from dstructures import (
     ConsumerList, TopicPartitionConsumer, DataConsumer, PartitionSet
 )
-from utilities import custom_comparator
-import random
+from exc import UndefinedAlgorithm
 
 
 class ApproximationAlgorithm: 
@@ -342,8 +343,8 @@ class AlgorithmFactory:
         elif algo_name in ("mbf", "modified best fit"):
             return ModifiedBestFit()
         elif algo_name in ("mwfp", "modified worst fit partitions"):
-            return ModifiedWorstFit(compare_key=custom_comparator)
+            return ModifiedWorstFit(compare_key=DataConsumer.biggest_speed)
         elif algo_name in ("mbfp", "modified best fit partitions"):
-            return ModifiedBestFit(compare_key=custom_comparator)
+            return ModifiedBestFit(compare_key=DataConsumer.biggest_speed)
         else: 
-            raise Exception()
+            raise UndefinedAlgorithm(f"{algo_name} is not a defined Algorithm")
