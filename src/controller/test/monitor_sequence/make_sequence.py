@@ -24,7 +24,7 @@ def generate_measurements(
         }
         measurements = [first_measurement]
 
-        for _ in range(Nmeasurements):
+        for _ in range(Nmeasurements-1):
             new_measurement = {
                 topic: {
                     partition: min(max(
@@ -47,5 +47,5 @@ def generate_measurements(
 
 if __name__ == '__main__': 
     generate_measurements(
-        0, 30, 5, 200, 0, 500, start_speed=0
+        5, 10, 5, 32, 0, 100
     )

@@ -24,7 +24,12 @@ def file_generator():
         yield file_name
         
 def algorithm_generator(): 
-    algorithms = ["mwf", "mwfp", "mbfp", "nf", "nfd", "ff", "ffd", "wf", "wfd", "bf", "bfd", "mbf"]
+    algorithms = [
+        "mwf", "mwfp", "mbfp", "nf", "nfd", "ff", "ffd", "wf", "wfd", "bf", "bfd", "mbf",
+        "kd_1", "kd_3", "kd_5", "kd_10", "kd_11", "kd_12", "kd_13", "kd_14", "kd_15", "kd_16",
+        "kd_17", "kd_18", "kd_19", "kd_20", "kd_21", "kd_22", "kd_23", "kd_24", "kd_25", "kd_26",
+        "kd_27", "kd_28", "kd_29", "kd_30", "kd_31", "kd_32"
+    ]
     for a in algorithms: 
         yield a
 

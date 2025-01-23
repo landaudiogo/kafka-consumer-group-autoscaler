@@ -32,13 +32,6 @@ trap "replace_files_with_sym" 0
 docker build -t controller-image . && 
     docker run \
       -it --rm \
-      --network kafka_kafka-network \
       --name controller-container \
-      --add-host="ip-172-31-7-133.eu-west-1.compute.internal:172.31.7.133" \
-      --add-host="ip-172-31-32-34.eu-west-1.compute.internal:172.31.32.34" \
-      --add-host="ip-172-31-30-37.eu-west-1.compute.internal:172.31.30.37" \
-      --add-host="uat:172.31.7.133" \
-      --add-host="prod1:172.31.32.34" \
-      --add-host="prod2:172.31.30.37" \
-      -v controller-volume:/usr/src/data \
+      -v $(pwd)/test/monitor_sequence/results:/usr/src/data \
       controller-image

@@ -1,4 +1,5 @@
 import random
+import os
 
 from dstructures import (
     ConsumerList, TopicPartitionConsumer, DataConsumer, PartitionSet
@@ -19,6 +20,8 @@ class ApproximationAlgorithm:
         random.shuffle(self.partitions)
         self.consumer_list = consumer_list
 
+    def assign(self, tp: TopicPartitionConsumer): 
+        raise NotImplemented()
 
 class DecreasingInput:
 
@@ -27,6 +30,34 @@ class DecreasingInput:
         pset = consumer_list.partitions() | PartitionSet(unassigned)
         self.partitions = sorted(pset.to_list(), reverse=True)
         self.consumer_list = consumer_list
+
+
+class KafkaDefault(ApproximationAlgorithm): 
+
+    def __init__(self, group_size: int): 
+        if group_size <= 0: 
+            raise Exception()
+        self.group_size = group_size
+
+    def treat_input(self, consumer_list, unassigned):
+        self.consumer_list = consumer_list
+        self.partitions = unassigned
+
+    def run(self):
+        if len(self.partitions) == 0: 
+            return self.consumer_list
+        self.current_idx = 0
+        self.next_assignment = ConsumerList()
+        return super().run()
+
+    def assign(self, tp: TopicPartitionConsumer): 
+        if self.next_assignment.get_idx(self.current_idx) == None: 
+            self.next_assignment.create_bin(idx=self.current_idx)
+        self.next_assignment.assign_partition_consumer(self.current_idx, tp)
+        self.current_idx = (
+            self.current_idx + 1
+            if self.current_idx < self.group_size-1 else 0
+        )
 
 
 class NextFit(ApproximationAlgorithm): 
@@ -346,5 +377,8 @@ class AlgorithmFactory:
             return ModifiedWorstFit(compare_key=DataConsumer.biggest_speed)
         elif algo_name in ("mbfp", "modified best fit partitions"):
             return ModifiedBestFit(compare_key=DataConsumer.biggest_speed)
+        elif algo_name.startswith("kd"):
+            group_size = int(algo_name.split("_")[1])
+            return KafkaDefault(group_size=group_size)
         else: 
             raise UndefinedAlgorithm(f"{algo_name} is not a defined Algorithm")

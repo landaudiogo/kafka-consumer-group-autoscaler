@@ -38,16 +38,16 @@ class Controller:
 
 
     def __init__(self):
-        self.monitor_consumer = Consumer(MONITOR_CONSUMER_CONFIG)
-        self.initialize_monitor_consumer()
+        # self.monitor_consumer = Consumer(MONITOR_CONSUMER_CONFIG)
+        # self.initialize_monitor_consumer()
 
-        self.controller_consumer = Consumer(CONTROLLER_CONSUMER_CONFIG)
-        self.controller_consumer.assign([TopicPartition(
-            topic="data-engineering-controller", partition=0
-        )])
-        self.controller_producer = Producer(CONTROLLER_PRODUCER_CONFIG)
-        self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
-        self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
+        # self.controller_consumer = Consumer(CONTROLLER_CONSUMER_CONFIG)
+        # self.controller_consumer.assign([TopicPartition(
+        #     topic="data-engineering-controller", partition=0
+        # )])
+        # self.controller_producer = Producer(CONTROLLER_PRODUCER_CONFIG)
+        # self.de_controller_metadata = Consumer(CONTROLLER_CONSUMER_CONFIG)
+        # self.kafka_cluster_admin = AdminClient(ADMIN_CONFIG)
 
         self.state_machine = StateMachine.factory_method(self, CONTROLLER_ENV)
 
@@ -56,13 +56,13 @@ class Controller:
         self.load_consumer_state()
         self.next_assignment = None
 
-        self.template_deployment = None
-        self.template_pvc = None
-        self.kube_configuration = None
-        self.load_kube_data()
+        # self.template_deployment = None
+        # self.template_pvc = None
+        # self.kube_configuration = None
+        # self.load_kube_data()
 
-        self.value_deserializer = AvroDeserializer() 
-        self.value_serializer = AvroSerializer(DEControllerSchema)
+        # self.value_deserializer = AvroDeserializer() 
+        # self.value_serializer = AvroSerializer(DEControllerSchema)
 
         self.test_speeds = None
         self.log_stopwatch = LogStopwatch()
@@ -105,7 +105,6 @@ class Controller:
         idx = self.state_machine.CYCLE
         if idx >= len(self.test_speeds):
             self.test_speeds = None
-            self.state_machine.CYCLE = 0
             raise StopMeasurementIteration()
         return self.test_speeds[idx]
 

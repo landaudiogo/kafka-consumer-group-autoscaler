@@ -256,9 +256,9 @@ class StateSentinelAlgorithms(State):
 
 
     def __init__(self, *args, **kwargs):
-        generate_measurements(
-            0, 30, 5, 200, 0, 1, start_speed=0
-        )
+        # generate_measurements(
+        #     0, 30, 5, 200, 0, 500
+        # )
         self.file_generator = file_generator()
         self.file = None
         self.next_file()
@@ -274,10 +274,8 @@ class StateSentinelAlgorithms(State):
             clean_up_measurement_files()
             raise NoMoreFiles()
 
-    
-
     def time_up(self):
-        return self.elapsed_time() > 0.3
+        return True
 
     def full_bin(self):
         for c in self.controller.consumer_list: 
@@ -336,7 +334,7 @@ class StateReassignAlgorithm(State):
     def entry(self): 
         super().entry()
         self.ALGORITHM_STATUS = False
-        self.controller.log_stopwatch.toggle("t2")
+        # self.controller.log_stopwatch.toggle("t2")
 
     def exit(self): 
         super().exit()
@@ -376,7 +374,8 @@ class StateReassignAlgorithmTest(State):
             self.algorithm_name = next(self.algorithm_generator)
             self.algorithm = AlgorithmFactory.get_algorithm(self.algorithm_name)
             logger.info(f"New approximation algorithm - {self.algorithm_name}")
-        except: 
+        except Exception as e: 
+            print(e)
             self.algorithm_generator = algorithm_generator()
             self.next_algorithm()
             raise NextFile()
@@ -384,7 +383,7 @@ class StateReassignAlgorithmTest(State):
     def entry(self): 
         super().entry()
         self.ALGORITHM_STATUS = False
-        self.controller.log_stopwatch.toggle("t2")
+        # self.controller.log_stopwatch.toggle("t2")
 
     def exit(self): 
         super().exit()
@@ -466,6 +465,7 @@ class StateGroupManagementTest(State):
     def __init__(self, controller):
         super().__init__(controller)
         self.FINAL_GROUP_STATE = None
+        self.latencies = {}
         self.evaluation_metrics = [(
             "file", 
             "algorithm",
@@ -489,27 +489,101 @@ class StateGroupManagementTest(State):
             raise InactiveState()
         return self.FINAL_GROUP_STATE
 
-    def save_metrics(self, file_path):
-        with open(file_path, "w") as f: 
+    def save_metrics(self, dir):
+        with open(f"{dir}/algorithms_data", "w") as f: 
             csv.writer(f).writerows(self.evaluation_metrics)
+
+        latencies = {}
+        for (algo_name, _), values in self.latencies.items():
+            algo_latencies = latencies.get(algo_name)
+            if algo_latencies == None: 
+                algo_latencies = []
+                latencies[algo_name] = algo_latencies
+            algo_latencies.extend(values)
+
+        for algo_name, algo_latencies in latencies.items(): 
+            with open(f"{dir}/latencies_{algo_name}", "w") as f:
+                import json
+                json.dump(algo_latencies, f)
 
     def execute(self): 
         delta = self.controller.next_assignment - self.controller.consumer_list
-        reassigned_partitions = [p for p, actions in delta.map_partition_actions.items() if actions.stop != None]
+        reassigned_partitions = [p 
+            for p, actions in delta.map_partition_actions.items() 
+            if actions.stop != None
+        ]
         Rscore_absolute = functools.reduce(
             lambda accum, p: p.speed + accum,
             reassigned_partitions, 0,
         )
         Nconsumers = len(self.controller.next_assignment.active_consumers)-1
+        algorithm_name = self.controller.state_machine.states["reassign"].algorithm_name
         self.evaluation_metrics.append((
             self.controller.state_machine.states["sentinel"].file,
-            self.controller.state_machine.states["reassign"].algorithm_name,
+            algorithm_name,
             self.controller.state_machine.CYCLE,
             Rscore_absolute/CONSUMER_CAPACITY,
             Rscore_absolute/ALGO_CAPACITY,
             len(reassigned_partitions),
             Nconsumers
         ))
+
+        # Change the order as start messages are not constructed before the 
+        # stop message has been acknowledged. We can see which partitions would 
+        # have to be stopped if the current assignment were switched with 
+        # the next assignment
+        delta = self.controller.consumer_list - self.controller.next_assignment
+        for consumer in self.controller.next_assignment: 
+            if consumer == None: 
+                continue
+
+            latency_key = (algorithm_name, consumer)
+            latencies = self.latencies.get(latency_key)
+            rebalance_latencies = []
+            consumption_latencies = []
+            if latencies == None:
+                latencies = []
+                self.latencies[latency_key] = latencies
+
+            start_partitions = (
+                delta.batch[consumer].stop.partitions() 
+                if delta.batch.get(consumer) != None else set() 
+            )
+            rebalance_queue_wr = functools.reduce(
+                lambda accum, tp: accum + tp.speed, 
+                start_partitions, 0
+            )
+            consumption_queue_wr = consumer.combined_speed - rebalance_queue_wr
+            consumption_queue_cr = (
+                min(CONSUMER_CAPACITY, consumption_queue_wr) 
+                if rebalance_queue_wr != 0 else CONSUMER_CAPACITY
+            )
+            rebalance_queue_cr = CONSUMER_CAPACITY - consumption_queue_cr
+
+            # Consumption Latencies
+            total_consumption_bytes = int(consumption_queue_wr*30)
+            if total_consumption_bytes > 0:  
+                m = 1/consumption_queue_cr - 1/consumption_queue_wr
+                b = latencies[-1] if len(latencies) > 0 else 0
+                for i in range(total_consumption_bytes):
+                    latency = max(m*i + b, 0)
+                    rebalance_latencies.append(latency)
+
+            # Rebalance Latencies
+            total_rebalance_bytes = (
+                int(rebalance_queue_wr*30) 
+                if self.controller.state_machine.CYCLE != 0 else 0
+            )
+            if total_rebalance_bytes > 0:
+                m = 1/rebalance_queue_cr - 1/rebalance_queue_wr
+                b = 5
+                for i in range(total_rebalance_bytes):
+                    latency = max(m*i + b, 0)
+                    consumption_latencies.append(latency)
+
+            latencies.extend(rebalance_latencies)
+            latencies.extend(consumption_latencies)
+
         self.controller.consumer_list = self.controller.next_assignment
         self.FINAL_GROUP_STATE = True
 
@@ -636,16 +710,18 @@ class StateMachine:
             self.current_state.execute()
         except SwitchAlgorithm: 
             self.CYCLE = 0
+            self.controller.consumer_list = ConsumerList()
+            self.current_state.execute()
             try: 
                 self.states["reassign"].next_algorithm()
             except NextFile:
                 try: 
                     self.states["sentinel"].next_file()
                 except NoMoreFiles:
-                    file_path = "/usr/src/data/algorithms_data"
-                    self.states["manage"].save_metrics(file_path)
-                    logger.info(f"Metrics available in {file_path}")
-                    time.sleep(60*5)
+                    dir = "/usr/src/data"
+                    self.states["manage"].save_metrics(dir)
+                    logger.info(f"Metrics available in {dir}")
+                    # time.sleep(60*5)
                     exit(0)
 
         sdest = self.current_state.verify_transitions()
@@ -658,7 +734,7 @@ class StateMachine:
         ): 
             self.CYCLE += 1
             print(f"Incrementing {self.CYCLE}")
-            self.controller.log_stopwatch.save_to_file("/usr/src/data/")
+            # self.controller.log_stopwatch.save_to_file("/usr/src/data/")
         self.current_state.exit()
         self.current_state = destination
         self.current_state.entry()

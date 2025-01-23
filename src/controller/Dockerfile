@@ -7,7 +7,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-ENV CONTROLLER_ENV=''
+ENV CONTROLLER_ENV='test-algorithms'
 ENV GENERAL_LOGGER_LEVEL='INFO'
 ENV STATE_MACHINE_LOGGER_LEVEL='DEBUG'
 
